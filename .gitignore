@@ -1,0 +1,8 @@
+*.pyc
+*.log
+*.swp
+*.o
+ipython.hist
+__pycache__
+build
+temp
