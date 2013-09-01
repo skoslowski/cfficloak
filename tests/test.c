@@ -18,6 +18,7 @@
 
 #include "test.h"
 #include <math.h>
+#include <stdlib.h>
 
 
 /* MyInt test functions */
@@ -116,39 +117,46 @@ int myint_add_array(int j, int *a, int n)
 }
 
 /* Struct tests */
-point_t make_point(int x, int y)
+point_t* make_point(int x, int y)
 {
-    point_t p;
-    p.x = x;
-    p.y = y;
+    point_t* p;
+    p = (point_t*)malloc(sizeof(point_t));
+    p->x = x;
+    p->y = y;
     return p;
 }
 
-int point_x(point_t p)
+void del_point(point_t* p)
 {
-    return p.x;
+    free(p);
 }
 
-int point_y(point_t p)
+int point_x(point_t* p)
 {
-    return p.y;
+    return p->x;
 }
 
-point_t point_setx(point_t p, int x)
+int point_y(point_t* p)
 {
-    p.x = x;
+    return p->y;
+}
+
+point_t* point_setx(point_t* p, int x)
+{
+    p->x = x;
     return p;
 }
 
-point_t point_sety(point_t p, int y)
+point_t* point_sety(point_t* p, int y)
 {
-    p.y = y;
+    p->y = y;
     return p;
 }
 
-float point_dist(point_t p1, point_t p2)
+double point_dist(point_t* p1, point_t* p2)
 {
-    float d;
-    d = sqrt(((p2.x - p1.x)^2) + ((p2.y - p1.y)^2));
+    double d = 1.0;
+    d = sqrt(pow(p2->x - p1->x, 2) + pow(p2->y - p1->y, 2));
     return d;
 }
+

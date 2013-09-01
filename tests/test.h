@@ -47,9 +47,10 @@ typedef struct {
     int y;
 } point_t;
 
-point_t make_point(int x, int y);
-int point_x(point_t p);
-int point_y(point_t p);
-point_t point_setx(point_t p, int x);
-point_t point_sety(point_t p, int y);
-float point_dist(point_t p1, point_t p2);
+point_t* make_point(int x, int y);
+void del_point(point_t* p);
+int point_x(point_t* p);
+int point_y(point_t* p);
+point_t* point_setx(point_t* p, int x);
+point_t* point_sety(point_t* p, int y);
+double point_dist(point_t* p1, point_t* p2);

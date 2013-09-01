@@ -60,13 +60,14 @@ double complicated(int in,
 
 int myint_add_array(int j, int *a, int n);
 
-typedef ... point_t;
-point_t make_point(int x, int y);
-int point_x(point_t p);
-int point_y(point_t p);
-point_t point_setx(point_t p, int x);
-point_t point_sety(point_t p, int y);
-float point_dist(point_t p1, point_t p2);
+typedef struct { ...; } point_t;
+point_t* make_point(int x, int y);
+void del_point(point_t* p);
+int point_x(point_t* p);
+int point_y(point_t* p);
+point_t* point_setx(point_t* p, int x);
+point_t* point_sety(point_t* p, int y);
+double point_dist(point_t* p1, point_t* p2);
 ''')
 
 srcpath = os.path.dirname(os.path.abspath(__file__))
@@ -369,18 +370,36 @@ class MyPoint(wrapper.WrapObj):
         'y': (cfuncs['point_y'], cfuncs['point_sety']),
     }
     _meths = {
-        '_make': cfuncs['make_point'],
+        '_make': staticmethod(cfuncs['make_point']),
+        '__del__': cfuncs['del_point'],
         'dist': cfuncs['point_dist'],
     }
 
     def __init__(self, x, y):
-        self._point = self._make(x, y)
+        super(MyPoint, self).__init__()
+        self._cdata = self._make(x, y)
+
 
 class TestMyPoint:
     @fixture(scope='class')
     def mypoint(self):
-        return MyPoint(4, 4)
+        return MyPoint(4, 5)
+    
+    @fixture(scope='class')
+    def mypoint2(self):
+        return MyPoint(5, 4)
 
-    def test_mypoint_x(self, mypoint):
+    def test_mypoint_props(self, mypoint):
         assert mypoint.x == 4
+        assert mypoint.y == 5
 
+    def test_mypoint_meths(self, mypoint, mypoint2):
+        from math import sqrt
+        d = mypoint.dist(mypoint2)
+        assert d == sqrt((mypoint2.x - mypoint.x)**2 
+                         + (mypoint2.x - mypoint.x)**2)
+
+    #def test_del(self, mypoint):
+    #    del mypoint
+    #    # TODO This will be hard to test because Pypy's GC has delays. Might 
+    #    # just have to test in CPython and assume it works in Pypy.

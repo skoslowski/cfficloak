@@ -78,7 +78,8 @@ class CFunc:
         self.kind = self.typeof.kind
         self.result = self.typeof.result
 
-        self.__call__ = func
+        # TODO Profile to see if this is really much faster...
+        #self.__call__ = func
 
     @classmethod
     def fromAPI(cls, api, ffi):
@@ -99,11 +100,19 @@ class CFunc:
         for attr in dir(api):
             if not attr.startswith('_'):
                 cobj = getattr(api, attr)
-                if type(cobj) == ffi.CData:
-                    if ffi.typeof(cobj).kind == 'function':
-                        cobj = cls(cobj, ffi)
+                if (type(cobj) == ffi.CData
+                        and ffi.typeof(cobj).kind == 'function'):
+                    cobj = cls(cobj, ffi)
                 cfuncs[attr] = cobj
         return cfuncs
+
+    def __call__(self, *args):
+
+        # https://bitbucket.org/cffi/cffi/issue/101
+        for argi, arg in enumerate(args):
+            if hasattr(arg, '_cdata'):
+                args = args[:argi] + (arg._cdata,) + args[argi+1:]
+        return self.func(*args)
 
 
 class WrapFunc(object):
@@ -253,13 +262,35 @@ class WrapFunc(object):
         # with something like "iiox{l5}iai" where "{l5}i" means the length of
         # the 6th (0-indexed) argument. Just something to think about...
 
+        # TODO: Also, maybe this should support some way to change the position
+        # of the 'self' argument to allow for libraries which have inconsistent
+        # function signatures...
+
+
+        # If the first argument is a WrapObj (i.e., the prop or meth wasn't
+        # declared as a staticmethod), see if it has a _cdata attr and pass
+        # that in instead. TODO Also, maybe just doing args[0]._cdata in a try/
+        # except block might be faster?
+        # XXX Moved to CFunc.__call__
+        #if isinstance(args[0], WrapObj):
+        #    c_self = args[0]  # List lookups are slow TODO Try this earlier
+        #    if hasattr(c_self, '_cdata'):
+        #        args = c_self._cdata
+
 
         # If this function has out or in-out pointer args, create the pointers
         # for each, and insert/replace them in the argument list before passing
         # to the underlying C function.
-        retargs = []
+        retargs = False
         if self.outargs:
+            retargs = []
+
+            # A few optimizations because looking up local variables is much
+            # faster than looking up object attributes.
+            retargs_append = retargs.append
             cfunc = self.cfunc
+            get_arrayptr = self.get_arrayptr
+
             for argi, inout in self.outargs:
                 argtype = cfunc.args[argi]
                 if inout == 'o':
@@ -269,9 +300,9 @@ class WrapFunc(object):
                     inptr = cfunc.ffi.new(argtype.cname, args[argi])
                     args = args[:argi] + (inptr,) + args[argi+1:]
                 elif inout == 'a':
-                    inptr = self.get_arrayptr(args[argi], ctype=argtype)
+                    inptr = get_arrayptr(args[argi], ctype=argtype)
                     args = args[:argi] + (inptr,) + args[argi+1:]
-                retargs.append((inptr, inout))
+                retargs_append((inptr, inout))
 
         retval = self.cfunc(*args)
         # TODO: Maybe I should move _checkerr to WrapFunc? Seems to make more
@@ -288,6 +319,8 @@ class WrapFunc(object):
                 if inout == 'a':
                     retval += (retarg,) # Return arrays as-is
                 else:
+                    # TODO: In some cases we don't want them unboxed... need a
+                    # good way to know when not to...
                     retval += (retarg[0],) # Unbox other pointers
             
         return retval
@@ -319,15 +352,14 @@ class MetaWrap(type):
 class WrapObj(object):
     ''' A pythonic representation of a C "object", usually representing a set
     of C functions that operate over a common peice of data. Many C APIs have
-    lots of functions which accept some common struct (not supported yet 
-    (TODO)) or identifier as the first argument being manipulated. WrapObj 
-    provides a convenient abstrtaction to making this convention more "object 
-    oriented". See the example below. More examples can be found in the unit 
-    tests.
+    lots of functions which accept some common struct pointer or identifier as 
+    the first argument being manipulated. WrapObj provides a convenient 
+    abstrtaction to making this convention more "object oriented". See the 
+    example below. More examples can be found in the unit tests.
 
     Intended for subclassing. Subclass should have a _props and/or _meths
     attribute, and optionally override _checkerr.
-
+    
     The '_props' class attribute is a dict mapping 'propery' names to WrapFunc
     functions. Keys in this dict are accessed from the Python object as
     attributes and return the result of calling the WrapFunc object with self
@@ -335,7 +367,7 @@ class WrapObj(object):
 
     libexample.h:
 
-        typedef point_t;
+        typedef int point_t;
         point_t make_point(int x, int y);
         int point_x(point_t p);
         int point_y(point_t p);
@@ -426,9 +458,40 @@ class WrapObj(object):
     the first element, the second and third being the "outargs" and "inoutargs"
     to the WrapFunc constructor.
 
-    TODO: Come up with not-too-ridiculously-contrived example.
+    TODO: Come up with not-too-ridiculously-contrived example. For now, check
+    out the unit tests for some examples.
 
     TODO: Document arrays and passing kwargs to WrapFunc.
+
+    Optionally, for C types which are not automatically coerced/converted by 
+    CFFI (such as struct pointers) the subclass can set a class- or instance-
+    attribute named '_cdata' which will be passed to the CFFI functions instead
+    of 'self'.
+
+    For example:
+
+    libexample cdef:
+
+        typedef struct { int x; ...; } mystruct;
+        mystruct* make_mystruct(int x);
+        int mystruct_x(mystruct* ms);
+
+    python:
+
+        >>> class MyStruct(WrapObj):
+        ...     _props = {'x': libexample.mystruct_x}
+        ...     _meths = {'_make': libexample.make_mystruct}
+        ...     def __init__(self, x):
+        ...         self._cdata = self._make(x)
+        ...
+        >>> ms = MyStruct(4)
+        >>> ms.x
+        4
+
+    Note: stack-passed structs are not supported yet* but pointers to
+    structs work as expected if you set the _cdata attribute to the pointer.
+
+    * https://bitbucket.org/cffi/cffi/issue/102
 
     A _checkerr method can also be defined which will be provided with any
     returned values from the call for error checking. See '_checkerr'
