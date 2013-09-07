@@ -16,6 +16,7 @@
 # The full license is also available in the file LICENSE.apache-2.0.txt
 
 import types, collections
+from functools import wraps
 import cffi
 
 try:
@@ -102,7 +103,8 @@ class CFunc:
                 cobj = getattr(api, attr)
                 if (type(cobj) == ffi.CData
                         and ffi.typeof(cobj).kind == 'function'):
-                    cobj = cls(cobj, ffi)
+                    # XXX Does using 'wraps' actually help anything?
+                    cobj = wraps(cobj)(cls(cobj, ffi))
                 cfuncs[attr] = cobj
         return cfuncs
 
