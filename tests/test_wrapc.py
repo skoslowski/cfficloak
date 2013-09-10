@@ -28,8 +28,7 @@ import os
 from pytest import *
 
 import cffi
-#from wrapper import *
-import wrapper
+import cffiwrap as wrap
 
 
 ### FFI boilerplate ###
@@ -60,7 +59,11 @@ double complicated(int in,
 
 int myint_add_array(int j, int *a, int n);
 
-typedef struct { ...; } point_t;
+typedef struct { 
+    int x;
+    int y;
+} point_t;
+
 point_t* make_point(int x, int y);
 void del_point(point_t* p);
 int point_x(point_t* p);
@@ -79,21 +82,20 @@ api = ffi.verify('#include "test.h"',
                  depends=[os.path.join(srcpath, 'test.h')])
 
 # You could also import all of the functions in to the current module with:
-# globals().update(CFunc.fromAPI(myapi))
+# globals().update(wrap.CFunction.wrapall(ffi, myapi))
 # This is useful to put all of the "raw" C functions in to a module (or sub-
 # module) within your package.
-cfuncs = wrapper.CFunc.fromAPI(api, ffi)
+cfuncs = wrap.CFunction.wrapall(ffi, api)
 
 
 class MyError(Exception): pass
 
-class MyInt(wrapper.WrapObj):
+class MyInt(wrap.CObject):
     def __init__(self, i):
         self.i = i
+        self._cdata = i
         super(MyInt, self).__init__()
-    def __int__(self):
-        return self.i
-    def _checkerr(self, retval, cfunc, args):
+    def _checkerr(self, cfunc, args, retval):
         ''' Checks for NULL return values and raises MyError. '''
         if retval == cffi.FFI.NULL:
             raise MyError('NULL returned by {0} with args {1}. '
@@ -156,7 +158,7 @@ class TestBasic:
 
 # Basic MyFloat tests
 
-class MyFloat(wrapper.WrapObj):
+class MyFloat(wrap.CObject):
     _props = {
         'succ': cfuncs['myfloat_succ'],
     }
@@ -190,7 +192,7 @@ class TestFloat:
         assert raises(TypeError, myonef.add, ())
 
     def test_null_checkerr(self, myonef):
-        with raises(wrapper.NullError):
+        with raises(wrap.NullError):
             myonef.null()
 
 
@@ -316,19 +318,19 @@ class TestCArrays:
 
     # A few sanity checks first
     def test_carray(self):
-        a = wrapper.carray([1,2])
+        a = wrap.carray([1,2])
         assert list(a) == [1,2]
-        a = wrapper.carray(2)
+        a = wrap.carray(2)
         assert len(a) == 2
-        a = wrapper.carray([1,2], 4)
+        a = wrap.carray([1,2], 4)
         assert list(a) == [1,2,0,0]
 
     def test_carray_myint_add_array(self):
-        a = wrapper.carray([1,2])
+        a = wrap.carray([1,2])
         cfuncs['myint_add_array'](1, a, len(a))
         assert list(a) == [2,3]
 
-    # Test WrapObj handling of arrays
+    # Test wrap.CObject handling of arrays
     def test_add_array(self, myfour):
         (retval, retarr) = myfour.add_array([4,2], 2)
         assert retval == 0
@@ -348,9 +350,9 @@ try:
         def myfive(self):
             return MyInt4(5)
 
-        def test_nparrayptr_myint_add_array_test(self):
+        def test_nparrayptr_myint_add_array(self):
             np_a = numpy.array([1,2], dtype=numpy.int32)
-            a = wrapper.nparrayptr(np_a)
+            a = wrap.nparrayptr(np_a)
             cfuncs['myint_add_array'](1, a, len(np_a))
             assert list(np_a) == [2,3]
 
@@ -364,7 +366,9 @@ except ImportError:
 
 ## Struct tests
 
-class MyPoint(wrapper.WrapObj):
+# First just test passing and receiving CFFI structs
+
+class MyPoint(wrap.CObject):
     _props = {
         'x': (cfuncs['point_x'], cfuncs['point_setx']),
         'y': (cfuncs['point_y'], cfuncs['point_sety']),
@@ -403,3 +407,36 @@ class TestMyPoint:
     #    del mypoint
     #    # TODO This will be hard to test because Pypy's GC has delays. Might 
     #    # just have to test in CPython and assume it works in Pypy.
+
+
+# Now to test CStructType
+
+structs = None
+point_t = None
+def test_CStructType_wrapall():
+    global structs, point_t
+    structs = wrap.CStructType.wrapall(ffi)
+    assert isinstance(structs, dict)
+    assert 'point_t' in structs
+    assert isinstance(structs['point_t'], wrap.CStructType)
+    point_t = structs['point_t']
+
+class TestMyPointStruct:
+    def test_pos_create(self):
+        p = point_t(32, 45)
+        assert p.x == 32
+        assert p.y == 45
+
+    def test_kw_create(self):
+        p = point_t(x=12, y=61)
+        assert p.x == 12
+        assert p.y == 61
+
+    def test_pos_kw_overlap(self):
+        with raises(TypeError):
+            p = point_t(1, x=2, y=3)
+
+    def test_too_many_args(self):
+        with raises(TypeError):
+            p = point_t(1, 2, 3)
+

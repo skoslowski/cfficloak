@@ -1,3 +1,3 @@
-
 * CFFI
-* Py.test (if you want to run the tests)
+* Py.test (If you want to run the tests.)
+* numpy (If you want numpy support. All other features work without it.)

@@ -1,6 +1,6 @@
 CFFI-wrapper - A simple but flexible module for creating object-oriented, pythonic CFFI wrappers.  
 
-Just copy wrapper.py to your CFFI project. See the tests for some examples.
+Just copy cffiwrap.py to your CFFI project. See the tests for some examples.
 
 
 

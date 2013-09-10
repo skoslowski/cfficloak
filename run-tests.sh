@@ -4,4 +4,5 @@
 
 make -C tests >/dev/null
 
+export PYTHONPATH="$PWD:$PYTHONPATH"
 py.test $@ tests/
