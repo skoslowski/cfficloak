@@ -185,8 +185,8 @@ class CFunction(object):
           (i.e., ffi.new(``int[10]``)) these will be returned as given.
         * Python ints and longs: These will be interpretted as the length of a
           newly allocated C array. The pointer to this array will be
-          returned. ``ctype`` must be provided (Function's __call__ method does
-          this automatically).
+          returned. ``ctype`` must be provided (CFunction's __call__ method
+          does this automatically).
         * Python collections: A new C array will be allocated with a length
           equal to the length of the iterable (``len()`` is called and the
           iterable is iterated over, so don't use exhaustable generators, etc).
@@ -330,19 +330,27 @@ class CFunction(object):
         for attr in dir(api):
             if not attr.startswith('_'):
                 cobj = getattr(api, attr)
-                if (type(cobj) == ffi.CData
+                if (isinstance(cobj, collections.Callable)
                         and ffi.typeof(cobj).kind == 'function'):
-                    # XXX Does using 'wraps' actually help anything?
-                    #cobj = wraps(cobj)(cls(ffi, cobj))
                     cobj = cls(ffi, cobj)
                 cfuncs[attr] = cobj
         return cfuncs
 
 
 class CStructType(object):
-    ''' Provides some introspection and convenience for CFFI StructTypes. '''
+    ''' Gives some introspection to CFFI ``StructType``s and ``UnionType``s. '''
     def __init__(self, ffi, structtype):
-        ''' ``struct`` is a CFFI StructType, and ``ffi`` is an FFI instance. '''
+        ''' Create a new CStructType.
+        
+        * ``ffi``: The FFI object.
+        * ``structtype``: a CFFI StructType or a string for the type name
+          (wihtout any trailing '*' or '[]').
+
+        '''
+
+        if isinstance(structtype, str):
+            structtype = ffi._parser.parse_type(structtype)
+
         self._struct_type = structtype
         self.ffi = ffi
 
@@ -352,7 +360,7 @@ class CStructType(object):
         self.fldnames = structtype.fldnames
 
     def __call__(self, *args, **kwargs):
-        ''' Returns a new CFFI struct instance for the given type.
+        ''' Returns a pointer to a new CFFI struct instance for the given type.
 
         Struct fields can be passed in as positional arguments or keyword
         arguments. ``TypeError`` is raised if positional arguments overlap with
@@ -381,9 +389,32 @@ class CStructType(object):
 
             return retval
 
+    def array(self, shape):
+        ''' Constructs a C array of the struct type with the given length.
+        
+        * ``shape``: Either an int for the length of a 1-D array, or a tuple
+          for the length of each of len dimensions. I.e., [2,2] for a 2-D array
+          with length 2 in each dimension. Hint: If you want an array of
+          pointers just add an extra demension with length 1. I.e., [2,2,1] is
+          a 2x2 array of pointers to structs.
+
+        No initialization of the elements is performed. CFFI initializes newly
+        allocated memory to zeros.
+        
+        '''
+
+        if isinstance(shape, collections.Iterable):
+            suffix = '[%i]' * len(shape) % tuple(shape)
+        else:
+            suffix = '[%i]' % (shape,)
+
+        # TODO Allow passing initialization args? Maybe factor out some of the
+        # code in __call__?
+        return self.ffi.new(self.ffi.getctype(self.cname + suffix))
+
     @classmethod
     def wrapall(cls, ffi):
-        ''' Classmethod to read all the structs from an ``FFI`` object.
+        ''' Classmethod reads all the structs and unions from a ``FFI`` object.
 
         Returns a dictionary mapping struct cnames to ``CStructType`` objects.
 
@@ -395,7 +426,7 @@ class CStructType(object):
         stypes = {}
         decls = ffi._parser._declarations
         for _, ctype in decls.iteritems():
-            if isinstance(ctype, cffi.model.StructType):
+            if isinstance(ctype, (cffi.model.StructType,cffi.model.UnionType)):
                 stypes[ctype.get_c_name()] = cls(ffi, ctype)
 
         return stypes
@@ -589,6 +620,12 @@ class CObject(object):
     __metaclass__ = _MetaWrap
 
     def __init__(self, *args):
+
+        if hasattr(self, '_checkerr'):
+            checkerr = self._checkerr
+        else:
+            checkerr = None
+
         # TODO: For some reason I can't get this to work in the metaclass...
         # Maybe something to do with the bound method thingy and stuff...?
         if hasattr(self, '_meths'):
@@ -612,21 +649,12 @@ class CObject(object):
                                         'items. Got: {0}'.format(repr(cfunc)))
                     cfunc = cfunc[0]
 
-                if hasattr(self, '_checkerr'):
-                    checkerr = self._checkerr
-                else:
-                    checkerr = None
-
                 if isinstance(cfunc, staticmethod):
-                    #func = Function(cfunc.__func__, self, **kwargs)
                     cfunc = cfunc.__func__
                     cfunc.set_outargs(checkerr, **kwargs)
                 elif meth == '_new':
-                    #func = Function(cfunc, self, **kwargs)
                     cfunc.set_outargs(checkerr, **kwargs)
                 else:
-                    #func = types.MethodType(Function(cfunc, self, **kwargs),
-                    #                        self)
                     cfunc.set_outargs(checkerr, **kwargs)
                     cfunc = types.MethodType(cfunc, self)
                 setattr(self, meth, cfunc)
@@ -675,3 +703,6 @@ def carray(items_or_size=None, size=None, ctype='int'):
     else:
         return _empty_ffi.new(_empty_ffi.getctype(ctype, '[]'), items or size)
 
+# This is starting to get kind of long... not sure when I should break it out
+# in to a package... I kind of like keeping it a simple module, but, I don't
+# know...

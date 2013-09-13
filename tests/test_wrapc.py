@@ -415,11 +415,19 @@ structs = None
 point_t = None
 def test_CStructType_wrapall():
     global structs, point_t
+
     structs = wrap.CStructType.wrapall(ffi)
     assert isinstance(structs, dict)
     assert 'point_t' in structs
     assert isinstance(structs['point_t'], wrap.CStructType)
     point_t = structs['point_t']
+
+def test_CStructType_name_create():
+    point_t = wrap.CStructType(ffi, 'point_t')
+    assert point_t.cname == 'point_t'
+    point = point_t(x=1, y=2)
+    assert point.x == 1
+    assert point.y == 2
 
 class TestMyPointStruct:
     def test_pos_create(self):
@@ -439,4 +447,11 @@ class TestMyPointStruct:
     def test_too_many_args(self):
         with raises(TypeError):
             p = point_t(1, 2, 3)
+
+    def test_array(self):
+        pa = point_t.array(10)
+        assert len(pa) == 10
+        assert pa[9].x == 0
+        with raises(IndexError):
+            pa[10].x == 0
 
