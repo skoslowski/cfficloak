@@ -13,5 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-The full license is also available in the file LICENSE.apache-2.0.txt
+The full license is also available in the file LICENSE.apache-2.0.txt included
+in main source distribution.
 
