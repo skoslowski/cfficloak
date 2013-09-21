@@ -19,7 +19,8 @@
 ''' A collection of convenience classes and functions for CFFI wrappers. '''
 
 
-import types, collections
+import types
+import collections
 from functools import wraps
 import cffi
 
@@ -39,8 +40,12 @@ __all__ = ['CFunction', 'CObject', 'WrapError', 'NullError']
 _empty_ffi = cffi.FFI()
 
 
-class WrapError(Exception): pass
-class NullError(WrapError): pass
+class WrapError(Exception):
+    pass
+
+
+class NullError(WrapError):
+    pass
 
 
 class CFunction(object):
@@ -49,10 +54,10 @@ class CFunction(object):
         provides a convenience function for wrapping all the functions in an
         API. This is useful for automatic or "batch" wrapping of general C
         functions. Most other wrapper classes expect API functions to be
-        wrapped in a CFunction. See ``fromAPI()`` below.
+        wrapped in a CFunction. See ``wrapall()`` below.
 
         * ``ffi``: The FFI object the C function is from.
-        * ``cfunc``: The C function object.
+        * ``cfunc``: The C function object from CFFI.
         * ``checkerr``: An optional callback passed the CFunction object, the
           args which were passed to the cfunc and the return value.
         * Any extra keyword args are passed to ``set_outargs``.
@@ -80,6 +85,7 @@ class CFunction(object):
 
         self.cfunc = cfunc
         self.ffi = ffi
+        self._checkerr = checkerr
 
         self.typeof = ffi.typeof(cfunc)
         self.args = self.typeof.args
@@ -92,9 +98,97 @@ class CFunction(object):
 
         self.set_outargs(**kwargs)
 
-    def __del__(self):
-        if hasattr(self, '_del'):
-            self._del()
+    def __get__(self, obj, objtype=None):
+        if hasattr(obj, '_checkerr'):
+            return lambda *args: self(*args, checkerr=obj._checkerr)
+        else:
+            return self
+
+    def __call__(self, *args, **kwargs):
+        # Most of this code has been heavily profiled with several different
+        # approaches and algorithms. However, if you think of a faster/better
+        # way to do this, I'm open to ideas. This code should be fairly fast
+        # because it will be the primary interface to the underlying C library,
+        # potentially having wrapper functions called in tight loops.
+
+        # pypy: 1000000 loops, best of 3: 229 ns per loop
+
+        # Actually, looking at the profiler output, by far the biggest cost is
+        # in CFFI itself (specifically calls to the _optimize_charset function
+        # in the compile_sre.py module) so I don't think it's worth it to
+        # squeeze much more performance out of this code...
+
+        # TODO IDEA: Consider using some kind of format string(s) to specify
+        # outargs, arrays, retargs, etc? This is getting complicated enough
+        # that it might make things simpler for the user?
+        # Maybe something like "iioxiai" where 'i' is for "in" arg, 'o' for out
+        # 'x' for in/out. Could then maybe do computed args, like array lengths
+        # with something like "iiox{l5}iai" where "{l5}i" means the length of
+        # the 6th (0-indexed) argument. Just something to think about...
+
+        # TODO: Also, maybe this should support some way to change the position
+        # of the 'self' argument to allow for libraries which have inconsistent
+        # function signatures...
+
+        if len(args) != self.numargs:
+            raise TypeError('wrapped Function {0} requires exactly {1} '
+                            'arguments ({2} given)'.format(self.cname,
+                                                           self.numargs,
+                                                           len(args)))
+
+        for argi, arg in enumerate(args):
+            if hasattr(arg, '_cdata') and arg._cdata is not None:
+                args = args[:argi] + (arg._cdata,) + args[argi+1:]
+
+        # If this function has out or in-out pointer args, create the pointers
+        # for each, and insert/replace them in the argument list before passing
+        # to the underlying C function.
+        retargs = False
+        if self.outargs:
+            retargs = []
+
+            # A few optimizations because looking up local variables is much
+            # faster than looking up object attributes.
+            retargs_append = retargs.append
+            cargs = self.args
+            cfunc = self.cfunc
+            ffi = self.ffi
+
+            for argi, inout in self.outargs:
+                argtype = cargs[argi]
+                if inout == 'o':
+                    inptr = ffi.new(argtype.cname)
+                    args = args[:argi] + (inptr,) + args[argi:]
+                elif inout == 'x':
+                    inptr = ffi.new(argtype.cname, args[argi])
+                    args = args[:argi] + (inptr,) + args[argi+1:]
+                elif inout == 'a':
+                    inptr = self.get_arrayptr(args[argi], ctype=argtype)
+                    args = args[:argi] + (inptr,) + args[argi+1:]
+                retargs_append((inptr, inout))
+
+        retval = self.cfunc(*args)
+        checkerr = kwargs.get('checkerr')
+        if checkerr is not None:
+            check = checkerr(self, args, retval)
+        else:
+            check = self.checkerr(self, args, retval)
+        retval = check or retval
+
+        # TODO: use self.outargs to determine which args should be in the
+        # output and use -1 to indicate the actual return code. Also test
+        # if len(retval) == 1 and return retval_t[0].
+        if retargs:
+            retval = (retval,)  # Return tuples, because it's prettier :)
+            for retarg, inout in retargs:
+                if inout == 'a':
+                    retval += (retarg,)  # Return arrays as-is
+                else:
+                    # TODO: In some cases we don't want them unboxed... need a
+                    # good way to know when not to...
+                    retval += (retarg[0],)  # Unbox other pointers
+
+        return retval
 
     def set_outargs(self, checkerr=None, outargs=(), inoutargs=(), arrays=(),
                     retargs=None):
@@ -130,13 +224,12 @@ class CFunction(object):
           pointer to the raw buffer will be returned, but any updates to the
           array data will also be reflected in the original numpy array, so
           it's recommended to just keep using that. (TODO: This behavior may
-          change to remove these CFFI pointers from the return tuple.)
+          change to remove these CFFI pointers from the return tuple or maybe
+          replace the C array with the original numpy object.)
 
           Integers will indicate that a fresh CFFI array should be allocated
-          with a length equal to the int. The generated CFFI array will be
-          included in the return tuple.
-
-        TODO: Add support for arrays, strings, structs, etc.
+          with a length equal to the int an initialized to zeros. The generated
+          CFFI array will be included in the return tuple.
 
         For example, a C function with this signature::
 
@@ -149,28 +242,21 @@ class CFunction(object):
 
         Returned values will be unboxed python values.
 
-        * ``outargs``: Arguments which are ``out-only``. Pointers will be
-          created and initialized, passed in to the underlying C function, and
-          their contents read and returned.
-        * ``inoutargs``: Arguments which are modified by the C function. Usually
-          pointers passed in by the caller.
-        * ``arrays``: Arguments which are to be considered arrays. Numpy arrays
-          and python lists are supports. See get_arrayptr below.
-
-        Returns self.
+        ``set_outargs`` returns self.
 
         '''
 
         self.numargs = len(self.args) - len(outargs)
 
-        outargs  = [(i, 'o') for i in outargs]
+        outargs =  [(i, 'o') for i in outargs]
         outargs += ((i, 'x') for i in inoutargs)
         outargs += ((i, 'a') for i in arrays)
 
         self.outargs = sorted(outargs)
         self.retargs = retargs
-        if checkerr is not None:
-            self.checkerr = checkerr
+        self._checkerr = checkerr
+
+        return self
 
     def get_arrayptr(self, array, ctype=None):
         ''' Get a CFFI compatible pointer object for an array.
@@ -197,97 +283,13 @@ class CFunction(object):
 
         if numpy and isinstance(array, numpy.ndarray):
             return self.ffi.cast('void *',
-                    array.__array_interface__['data'][0])
+                                 array.__array_interface__['data'][0])
         elif isinstance(array, self.ffi.CData):
             return array
         else:
             # Assume it's an iterable or int/long. CFFI will handle the rest.
             return self.ffi.new(self.ffi.getctype(ctype.item.cname, '[]'),
                                 array)
-
-    def __call__(self, *args):
-        # Most of this code has been heavily profiled with several different
-        # approaches and algorithms. However, if you think of a faster/better
-        # way to do this, I'm open to ideas. This code should be fairly fast
-        # because it will be the primary interface to the underlying C library,
-        # potentially having wrapper functions called in tight loops.
-
-        # pypy: 1000000 loops, best of 3: 229 ns per loop
-
-        # Actually, looking at the profiler output, by far the biggest cost is
-        # in CFFI itself (specifically calls to the _optimize_charset function
-        # in the compile_sre.py module) so I don't think it's worth it to
-        # squeeze much more performance out of this code...
-
-        # TODO IDEA: Consider using some kind of format string(s) to specify
-        # outargs, arrays, retargs, etc? This is getting complicated enough
-        # that it might make things simpler for the user?
-        # Maybe something like "iioxiai" where 'i' is for "in" arg, 'o' for out
-        # 'x' for in/out. Could then maybe do computed args, like array lengths
-        # with something like "iiox{l5}iai" where "{l5}i" means the length of
-        # the 6th (0-indexed) argument. Just something to think about...
-
-        # TODO: Also, maybe this should support some way to change the position
-        # of the 'self' argument to allow for libraries which have inconsistent
-        # function signatures...
-
-        if len(args) != self.numargs:
-            raise TypeError('wrapped Function {0} requires exactly {1} '
-                            'arguments ({2} given)'.format(self.cname,
-                                                           self.numargs,
-                                                           len(args)))
-
-        for argi, arg in enumerate(args):
-            if hasattr(arg, '_cdata'):
-                args = args[:argi] + (arg._cdata,) + args[argi+1:]
-
-        # If this function has out or in-out pointer args, create the pointers
-        # for each, and insert/replace them in the argument list before passing
-        # to the underlying C function.
-        retargs = False
-        if self.outargs:
-            retargs = []
-
-            # A few optimizations because looking up local variables is much
-            # faster than looking up object attributes.
-            retargs_append = retargs.append
-            cargs = self.args
-            cfunc = self.cfunc
-            ffi = self.ffi
-
-            for argi, inout in self.outargs:
-                argtype = cargs[argi]
-                if inout == 'o':
-                    inptr = ffi.new(argtype.cname)
-                    args = args[:argi] + (inptr,) + args[argi:]
-                elif inout == 'x':
-                    inptr = ffi.new(argtype.cname, args[argi])
-                    args = args[:argi] + (inptr,) + args[argi+1:]
-                elif inout == 'a':
-                    inptr = self.get_arrayptr(args[argi], ctype=argtype)
-                    args = args[:argi] + (inptr,) + args[argi+1:]
-                retargs_append((inptr, inout))
-
-        retval = self.cfunc(*args)
-        # TODO: Maybe I should move _checkerr to Function? Seems to make more
-        # sense... In fact, I might even just merge Function and CFunction...
-        check = self.checkerr(self, args, retval)
-        retval = check or retval
-
-        # TODO: use self.outargs to determine which args should be in the
-        # output and use -1 to indicate the actual return code. Also test
-        # if len(retval) == 1 and return retval_t[0].
-        if retargs:
-            retval = (retval,) # Return tuples, because it's prettier :)
-            for retarg, inout in retargs:
-                if inout == 'a':
-                    retval += (retarg,) # Return arrays as-is
-                else:
-                    # TODO: In some cases we don't want them unboxed... need a
-                    # good way to know when not to...
-                    retval += (retarg[0],) # Unbox other pointers
-
-        return retval
 
     @staticmethod
     def checkerr(cfunc, args, retval):
@@ -296,12 +298,15 @@ class CFunction(object):
 
         Can be overridden by subclasses. If ``_checkerr`` returns anything
         other than ``None``, that value will be returned by the property or
-        method, otherwise original return value of the C call will be returned. 
+        method, otherwise original return value of the C call will be returned.
         Also useful for massaging returned values.
 
         '''
 
         #TODO: Maybe should generalize to "_returnhandler" or something?
+
+        #if self._checkerr is not None:
+        #    self._checkerr(cfunc, args, retval)
 
         if retval == cffi.FFI.NULL:
             raise NullError('NULL returned by {0} with args {1}. '
@@ -309,42 +314,26 @@ class CFunction(object):
         else:
             return retval
 
-    @classmethod
-    def wrapall(cls, ffi, api):
-        ''' Classmethod to read CFFI functions from an API/Verifier object and
-        wrap them in ``CFunction``\ s.
-
-        ``ffi``: The FFI object (needed for it's ``typeof()`` method)
-        ``api``: As returned by ``ffi.verify()``
-
-        Returns a dict mapping function names to CFunction instances. Hint: in a
-        python module that only does CFFI boilerplate, try something like::
-
-            globals().update(CFunction.fromAPI(myapi))
-
-        '''
-
-        # TODO: Support passing in a checkerr function to be called on the
-        # return value for all wrapped functions.
-        cfuncs = {}
-        for attr in dir(api):
-            if not attr.startswith('_'):
-                cobj = getattr(api, attr)
-                if (isinstance(cobj, collections.Callable)
-                        and ffi.typeof(cobj).kind == 'function'):
-                    cobj = cls(ffi, cobj)
-                cfuncs[attr] = cobj
-        return cfuncs
-
+class CMethod(object):
+    def __init__(self, cfunc):
+        self.cfunc = cfunc
+        
 
 class CStructType(object):
-    ''' Gives some introspection to CFFI ``StructType``s and ``UnionType``s. '''
+    ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s. '''
     def __init__(self, ffi, structtype):
         ''' Create a new CStructType.
-        
+
         * ``ffi``: The FFI object.
         * ``structtype``: a CFFI StructType or a string for the type name
           (wihtout any trailing '*' or '[]').
+
+        Instances have the following attributes:
+
+        * ``ffi``: The FFI object this struct is pulled from.
+        * ``cname``: The C name of the struct.
+        * ``ptrname``: The C pointer type signature for this struct.
+        * ``fldnames``: A list of fields this struct has.
 
         '''
 
@@ -391,7 +380,7 @@ class CStructType(object):
 
     def array(self, shape):
         ''' Constructs a C array of the struct type with the given length.
-        
+
         * ``shape``: Either an int for the length of a 1-D array, or a tuple
           for the length of each of len dimensions. I.e., [2,2] for a 2-D array
           with length 2 in each dimension. Hint: If you want an array of
@@ -400,7 +389,7 @@ class CStructType(object):
 
         No initialization of the elements is performed. CFFI initializes newly
         allocated memory to zeros.
-        
+
         '''
 
         if isinstance(shape, collections.Iterable):
@@ -412,38 +401,10 @@ class CStructType(object):
         # code in __call__?
         return self.ffi.new(self.ffi.getctype(self.cname + suffix))
 
-    @classmethod
-    def wrapall(cls, ffi):
-        ''' Classmethod reads all the structs and unions from a ``FFI`` object.
-
-        Returns a dictionary mapping struct cnames to ``CStructType`` objects.
-
-        '''
-
-        # The things I go through for a little bit of introspection.
-        # Just hope this doesn't change too much in CFFI's internals...
-
-        stypes = {}
-        decls = ffi._parser._declarations
-        for _, ctype in decls.iteritems():
-            if isinstance(ctype, (cffi.model.StructType,cffi.model.UnionType)):
-                stypes[ctype.get_c_name()] = cls(ffi, ctype)
-
-        return stypes
-
 
 class _MetaWrap(type):
     ''' See ``CObject``. '''
     def __new__(mcs, name, bases, attrs):
-        for prop, funcs in attrs.get('_props', {}).iteritems():
-            # TODO: Support outargs in props for getter functions that take a
-            # second argument like a struct or string pointer which is filled
-            # out with the requested data.
-            if isinstance(funcs, (tuple, list)):
-                attrs[prop] = property(*funcs)
-            else:
-                attrs[prop] = property(funcs)
-
         # Allow sub-subclasses to inherit _meth entries from their parents.
         if '_meths' in attrs:
             for base in bases:
@@ -455,7 +416,67 @@ class _MetaWrap(type):
                     meths.update(attrs['_meths'])
                     attrs['_meths'] = meths
 
-        return type.__new__(mcs, name, bases, attrs)
+        return super(_MetaWrap, mcs).__new__(mcs, name, bases, attrs)
+
+    def __init__(cls, name, bases, attrs):
+        for prop, funcs in attrs.get('_props', {}).iteritems():
+            # TODO: Support outargs in props for getter functions that take a
+            # second argument like a struct or string pointer which is filled
+            # out with the requested data.
+            if isinstance(funcs, (tuple, list)):
+                #attrs[prop] = property(*funcs)
+                setattr(cls, prop, property(*funcs))
+            else:
+                #attrs[prop] = property(funcs)
+                setattr(cls, prop, property(funcs))
+
+        for meth, cfunc in attrs.get('_meths', {}).iteritems():
+
+            # Support for (cfunc, [outargs...], [inoutargs...]) form
+            kwargs = {}
+            if isinstance(cfunc, collections.Sequence):
+
+                # (cfunc, {outargs=[1,2,3], ...}) form
+                if isinstance(cfunc[-1], dict):
+                    kwargs = cfunc[-1]
+                    cfunc = cfunc[:-1]
+
+                # (cfunc, [1,2,3], ...) outargs form
+                if len(cfunc) >= 2:
+                    kwargs['outargs'] = cfunc[1]
+
+                # (cfunc, [1,2,3], [4,5,6]) outargs + inoutargs form
+                if len(cfunc) >= 3:
+                    kwargs['inoutargs'] = cfunc[2]
+
+                # (cfunc, [1,2,3], [4,5,6], [7,8,9]) ... + arrays form
+                if len(cfunc) == 4:
+                    kwargs['arrays'] = cfunc[3]
+
+                # Unsupported form
+                if len(cfunc) > 4 or len(cfunc) < 1:
+                    raise WrapError('Wrong number of items in method ' +
+                                    'spec tuple. Must contain 1 to 4 ' +
+                                    'items. Got: {0}'.format(repr(cfunc)))
+
+                cfunc = cfunc[0]
+
+            # C functions that don't accept the wrapped object
+            if isinstance(cfunc, staticmethod):
+                cfunc = cfunc.__func__
+                cfunc.set_outargs(**kwargs)
+
+            # Usually C functions that create object. Default as static.
+            elif meth == '_cnew':
+                cfunc.set_outargs(**kwargs)
+
+            # Other methods treated like instance methods
+            else:
+                cfunc.set_outargs(**kwargs)
+                cfunc = types.MethodType(cfunc, None, cls)
+
+            #attrs[meth] = cfunc
+            setattr(cls, meth, cfunc)
 
 
 class CObject(object):
@@ -532,8 +553,8 @@ class CObject(object):
         8
 
     Subclasses can also define a ``_meths`` dict for more general methods. If a
-    method named "``_new``" is defined, this will be called by ``__init__`` and
-    the return value assigned to the ``_cdata`` instance attribute::
+    method named "``_cnew``" is defined, this will be called by ``__init__``
+    and the return value assigned to the ``_cdata`` instance attribute::
 
         >>> class Point3(Point):
         ...     _meths = {'move': libexample.point_move}
@@ -606,74 +627,74 @@ class CObject(object):
 
     * https://bitbucket.org/cffi/cffi/issue/102
 
-    An ``CObject`` can also specify a method named ``_new`` which will be called
-    when the class is instantiated. This can be declared in the ``_meths`` dict
-    or be a normal method on the class. Any arguments given when the class is
-    called will be passed to this method. The return value will be
-    automatically assigned to the ``_cdata`` instance attribute.
+    An ``CObject`` can also specify a method named ``_cnew`` which will be
+    called when the class is instantiated. This can be declared in the
+    ``_meths`` dict or be a normal method on the class. Any arguments given
+    when the class is called will be passed to this method. The return value
+    will be automatically assigned to the ``_cdata`` instance attribute.
+
+    If _cdata is set, attributes of the cdata object can also be retrieved from
+    the CObject instance, e.g., for struct fields, etc.
 
     You can also specify a destructor with a ``_del`` method in the same way as
-    ``_new``.
+    ``_cnew``.
 
     '''
 
     __metaclass__ = _MetaWrap
+    _cdata = None
 
     def __init__(self, *args):
+        if hasattr(self, '_cnew') and self._cnew is not None:
+            self._cdata = self._cnew(*args)
 
-        if hasattr(self, '_checkerr'):
-            checkerr = self._checkerr
-        else:
-            checkerr = None
+    def __getattr__(self, attr):
+        if self._cdata is not None and hasattr(self._cdata, attr):
+            return getattr(self._cdata, attr)
 
-        # TODO: For some reason I can't get this to work in the metaclass...
-        # Maybe something to do with the bound method thingy and stuff...?
-        if hasattr(self, '_meths'):
-            for meth, cfunc in self._meths.iteritems():
-
-                # Support for (cfunc, [outargs...], [inoutargs...]) form
-                kwargs = {}
-                if isinstance(cfunc, collections.Sequence):
-                    if isinstance(cfunc[-1], dict):
-                        kwargs = cfunc[-1]
-                        cfunc = cfunc[:-1]
-                    if len(cfunc) >= 2:
-                        kwargs['outargs'] = cfunc[1]
-                    if len(cfunc) >= 3:
-                        kwargs['inoutargs'] = cfunc[2]
-                    if len(cfunc) == 4:
-                        kwargs['arrays'] = cfunc[3]
-                    if len(cfunc) > 4 or len(cfunc) < 1:
-                        raise WrapError('Wrong number of items in method ' +
-                                        'spec tuple. Must contain 1 to 4 ' +
-                                        'items. Got: {0}'.format(repr(cfunc)))
-                    cfunc = cfunc[0]
-
-                if isinstance(cfunc, staticmethod):
-                    cfunc = cfunc.__func__
-                    cfunc.set_outargs(checkerr, **kwargs)
-                elif meth == '_new':
-                    cfunc.set_outargs(checkerr, **kwargs)
-                else:
-                    cfunc.set_outargs(checkerr, **kwargs)
-                    cfunc = types.MethodType(cfunc, self)
-                setattr(self, meth, cfunc)
-
-            if hasattr(self, '_new'):
-                self._cdata = self._new(*args)
-                
-
-#class Structure(CObject):
-#    def __init__
+    def __del__(self):
+        if hasattr(self, '_del'):
+            self._del()
 
 
 def wrapall(ffi, api):
-    ''' Calls ``CFunction.wrapall`` and ``CStructType.wrap`` on the ffi and api
-    arguments and returns a dict contain their results. '''
+    ''' Convenience function to wrap CFFI functions structs and unions.
 
-    cobjs = CFunction.wrapall(ffi, api)
-    cobjs.update(CStructType.wrapall(ffi))
+    Reads functions, structs and unions from an API/Verifier object and wrap
+    them with the respective wrapper functions.
+
+    ``ffi``: The FFI object (needed for it's ``typeof()`` method)
+    ``api``: As returned by ``ffi.verify()``
+
+    Returns a dict mapping object names to wrapper instances. Hint: in
+    a python module that only does CFFI boilerplate, try something like::
+
+        globals().update(wrapall(myffi, myapi))
+
+    '''
+
+    # TODO: Support passing in a checkerr function to be called on the
+    # return value for all wrapped functions.
+    cobjs = {}
+    for attr in dir(api):
+        if not attr.startswith('_'):
+            cobj = getattr(api, attr)
+            if (isinstance(cobj, collections.Callable)
+                    and ffi.typeof(cobj).kind == 'function'):
+                cobj = CFunction(ffi, cobj)
+            cobjs[attr] = cobj
+
+        # The things I go through for a little bit of introspection.
+        # Just hope this doesn't change too much in CFFI's internals...
+
+    decls = ffi._parser._declarations
+    for _, ctype in decls.iteritems():
+        if isinstance(ctype, (cffi.model.StructType,
+                              cffi.model.UnionType)):
+            cobjs[ctype.get_c_name()] = CStructType(ffi, ctype)
+
     return cobjs
+
 
 def nparrayptr(nparr):
     ''' Convenience function for getting the CFFI-compatible pointer to a numpy
