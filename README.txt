@@ -2,7 +2,7 @@ CFFI-wrapper - A simple but flexible module for creating object-oriented, python
 
 Just copy cffiwrap.py to your CFFI project. See the tests for some examples.
 
-
+Documentation is here: http://cffiwrap.readthedocs.org/
 
 Copyright (c) 2013, Isaac Freeman <memotype@gmail.com>
 All rights reserved.
