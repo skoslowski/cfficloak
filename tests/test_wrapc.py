@@ -29,6 +29,7 @@ from pytest import *
 
 import cffi
 import cffiwrap as wrap
+from cffiwrap import cmethod, cstaticmethod, cproperty
 
 
 ### FFI boilerplate ###
@@ -95,26 +96,23 @@ class MyInt(wrap.CObject):
         self.i = i
         self._cdata = i
         super(MyInt, self).__init__()
-    #def _checkerr(self, cfunc, args, retval):
-    #    ''' Checks for NULL return values and raises MyError. '''
-    #    if retval == cffi.FFI.NULL:
-    #        raise MyError('NULL returned by {0} with args {1}. '
-    #                        .format(cfunc.cname, args, retval))
-    #    else:
-    #        return retval
+    def _checkerr(self, cfunc, args, retval):
+        ''' Checks for NULL return values and raises MyError. '''
+        if retval == cffi.FFI.NULL:
+            raise MyError('NULL returned by {0} with args {1}. '
+                            .format(cfunc.cname, args, retval))
+        else:
+            return retval
             
 
 ### Basic wrapper tests ###
 
 class MyInt1(MyInt):
-    _props = {
-        'succ': cfuncs['myint_succ'],
-    }
-    _meths = {
-        'add': cfuncs['myint_add'],
-        's_add': staticmethod(cfuncs['myint_add']),
-        'null': cfuncs['myintp_null'],
-    }
+    succ = cproperty(cfuncs['myint_succ'])
+    add = cmethod(cfuncs['myint_add'])
+    s_add = cstaticmethod(cfuncs['myint_add'])
+    null = cmethod(cfuncs['myintp_null'])
+
 
 class TestBasic:
     @fixture(scope='class')
@@ -140,7 +138,6 @@ class TestBasic:
         assert raises(TypeError, myone.add, ())
 
     def test_null_my_checkerr(self, myone):
-        skip()
         with raises(MyError):
             myone.null()
 
@@ -160,13 +157,10 @@ class TestBasic:
 # Basic MyFloat tests
 
 class MyFloat(wrap.CObject):
-    _props = {
-        'succ': cfuncs['myfloat_succ'],
-    }
-    _meths = {
-        'add': cfuncs['myfloat_add'],
-        'null': cfuncs['myfloatp_null'],
-    }
+    succ = cproperty(cfuncs['myfloat_succ'])
+    add = cmethod(cfuncs['myfloat_add'])
+    null = cmethod(cfuncs['myfloatp_null'])
+
     def __init__(self, f):
         self.f = f
         super(MyFloat, self).__init__()
@@ -193,7 +187,6 @@ class TestFloat:
         assert raises(TypeError, myonef.add, ())
 
     def test_null_checkerr(self, myonef):
-        skip()
         with raises(wrap.NullError):
             myonef.null()
 
@@ -201,12 +194,8 @@ class TestFloat:
 ### Inheritance tests ###
 
 class MyInt2(MyInt1):
-    _props = {
-        'doubled': cfuncs['myint_doubled'],
-    }
-    _meths = {
-        'mult': cfuncs['myint_mult'],
-    }
+    doubled = cproperty(cfuncs['myint_doubled'])
+    mult = cmethod(cfuncs['myint_mult'])
 
 class TestInherit:
     @fixture(scope='class')
@@ -232,15 +221,17 @@ class TestInherit:
 
 ### Override inheritanc tests ###
 
+# Just to check aesthetics...
+myint_succ2 = cfuncs['myint_succ2']
+myint_doubled = cfuncs['myint_doubled']
+myint_add2 = cfuncs['myint_add2']
+myint_mult = cfuncs['myint_mult']
+
 class MyInt3(MyInt2):
-    _props = {
-        'succ': cfuncs['myint_succ2'],
-        'doubled': cfuncs['myint_doubled'],
-    }
-    _meths = {
-        'add': cfuncs['myint_add2'],
-        'mult': cfuncs['myint_mult'],
-    }
+    succ = cproperty(myint_succ2)
+    doubled = cproperty(myint_doubled)
+    add = cmethod(myint_add2)
+    mult = cmethod(myint_mult)
 
 class TestOverride:
     @fixture(scope='class')
@@ -270,19 +261,20 @@ class TestOverride:
     # Make sure the null method 'falls through'.
     def test_null(self, mythree):
         assert hasattr(mythree, 'null')
-        skip()
         with raises(MyError):
             mythree.null()
 
 
 ### Outarg tests ###
 
+set_ptr_succ = cfuncs['set_ptr_succ']
+set_ptr_add = cfuncs['set_ptr_add']
+complicated = cfuncs['complicated']
+
 class MyOutInt(MyInt):
-    _meths = {
-        'setp': (cfuncs['set_ptr_succ'], [1]),
-        'addp': (cfuncs['set_ptr_add'], [], [1]),
-        'complicated': (cfuncs['complicated'], [1], [2, 4])
-    }
+    setp = cmethod(set_ptr_succ, outargs=[1])
+    addp = cmethod(set_ptr_add, inoutargs=[1])
+    complicated = cmethod(complicated, outargs=[1], inoutargs=[2, 4])
 
 class TestOutargs:
     @fixture(scope='class')
@@ -307,9 +299,7 @@ class TestOutargs:
 ### Array tests ###
 
 class MyInt4(MyInt):
-    _meths = {
-        'add_array': (cfuncs['myint_add_array'], {'arrays': [1]})
-    }
+    add_array = cmethod(cfuncs['myint_add_array'], arrays=[1])
 
 ## C arrays
 
@@ -371,15 +361,11 @@ except ImportError:
 # First just test passing and receiving CFFI structs
 
 class MyPoint(wrap.CObject):
-    _props = {
-        'x': (cfuncs['point_x'], cfuncs['point_setx']),
-        'y': (cfuncs['point_y'], cfuncs['point_sety']),
-    }
-    _meths = {
-        '_cnew': staticmethod(cfuncs['make_point']),
-        '__del__': cfuncs['del_point'],
-        'dist': cfuncs['point_dist'],
-    }
+    x = cproperty(cfuncs['point_x'], cfuncs['point_setx'])
+    y = cproperty(cfuncs['point_y'], cfuncs['point_setx'])
+    _cnew = cstaticmethod(cfuncs['make_point'])
+    _cdel = cmethod(cfuncs['del_point'])
+    dist = cmethod(cfuncs['point_dist'])
 
 class TestMyPoint:
     @fixture(scope='class')
@@ -403,7 +389,8 @@ class TestMyPoint:
     #def test_del(self, mypoint):
     #    del mypoint
     #    # TODO This will be hard to test because Pypy's GC has delays. Might 
-    #    # just have to test in CPython and assume it works in Pypy.
+    #    # just have to test in CPython and assume it works in Pypy. Or maybe
+    #    # there's a way to force a GC in pypy?
 
 
 # Now to test CStructType

@@ -34,22 +34,25 @@ except ImportError:
     numpy = None
 
 
-__all__ = ['CFunction', 'CObject', 'WrapError', 'NullError']
+__all__ = [
+    'CFunction',
+    'CObject',
+    'NullError',
+    'cmethod',
+    'cstaticmethod',
+    'cproperty',
+]
 
 
 _empty_ffi = cffi.FFI()
 
 
-class WrapError(Exception):
-    pass
-
-
-class NullError(WrapError):
+class NullError(Exception):
     pass
 
 
 class CFunction(object):
-    def __init__(self, ffi, cfunc, checkerr=None, **kwargs):
+    def __init__(self, ffi, cfunc):
         ''' Adds some low-ish-level introspection to CFFI C functions and
         provides a convenience function for wrapping all the functions in an
         API. This is useful for automatic or "batch" wrapping of general C
@@ -58,8 +61,6 @@ class CFunction(object):
 
         * ``ffi``: The FFI object the C function is from.
         * ``cfunc``: The C function object from CFFI.
-        * ``checkerr``: An optional callback passed the CFunction object, the
-          args which were passed to the cfunc and the return value.
         * Any extra keyword args are passed to ``set_outargs``.
 
         Attributes added to instances:
@@ -78,14 +79,13 @@ class CFunction(object):
         '''
 
         # This is basically a hack to work around the lack of introspection
-        # built-in to CFFI CData objects. The overhead should be negligable
-        # since the CFFI function is directly assigned to __call__ (this also
-        # prevents it from being called like a bound method - we do that later
-        # in when bind it to the CObject instance below).
+        # built-in to CFFI CData function objects. The overhead should be
+        # negligable since the CFFI function is directly assigned to __call__
+        # (this also prevents it from being called like a bound method - we do
+        # that later with the cmethod module function).
 
         self.cfunc = cfunc
         self.ffi = ffi
-        self._checkerr = checkerr
 
         self.typeof = ffi.typeof(cfunc)
         self.args = self.typeof.args
@@ -96,15 +96,8 @@ class CFunction(object):
         # TODO Profile to see if this is really much faster...
         #self.__call__ = func
 
-        self.set_outargs(**kwargs)
-
-    def __get__(self, obj, objtype=None):
-        if hasattr(obj, '_checkerr'):
-            return lambda *args: self(*args, checkerr=obj._checkerr)
-        else:
-            return self
-
     def __call__(self, *args, **kwargs):
+                 #outargs=() retargs=None):
         # Most of this code has been heavily profiled with several different
         # approaches and algorithms. However, if you think of a faster/better
         # way to do this, I'm open to ideas. This code should be fairly fast
@@ -117,6 +110,7 @@ class CFunction(object):
         # in CFFI itself (specifically calls to the _optimize_charset function
         # in the compile_sre.py module) so I don't think it's worth it to
         # squeeze much more performance out of this code...
+        # Update: This seems to no longer be the case in newer pypy/cffi?
 
         # TODO IDEA: Consider using some kind of format string(s) to specify
         # outargs, arrays, retargs, etc? This is getting complicated enough
@@ -130,31 +124,34 @@ class CFunction(object):
         # of the 'self' argument to allow for libraries which have inconsistent
         # function signatures...
 
-        if len(args) != self.numargs:
-            raise TypeError('wrapped Function {0} requires exactly {1} '
-                            'arguments ({2} given)'.format(self.cname,
-                                                           self.numargs,
-                                                           len(args)))
+        outargs = kwargs.get('outargs')
+        retargs = kwargs.get('retargs')
 
-        for argi, arg in enumerate(args):
-            if hasattr(arg, '_cdata') and arg._cdata is not None:
-                args = args[:argi] + (arg._cdata,) + args[argi+1:]
+        # This guard is semantically useless, but is substantially faster in
+        # cpython than trying to iterate over enumerate([]). (No diff in pypy)
+        if args:
+            for argi, arg in enumerate(args):
+                if hasattr(arg, '_cdata') and arg._cdata is not None:
+                    args = args[:argi] + (arg._cdata,) + args[argi+1:]
 
         # If this function has out or in-out pointer args, create the pointers
         # for each, and insert/replace them in the argument list before passing
         # to the underlying C function.
-        retargs = False
-        if self.outargs:
-            retargs = []
+        retvals = False
+        if outargs:
+            # TODO: use retargs to determine which args should be in the
+            # return and use -1 to indicate the actual return code. Also test
+            # if len(retval) == 1 and return retval_t[0].
+            retvals = []
 
             # A few optimizations because looking up local variables is much
             # faster than looking up object attributes.
-            retargs_append = retargs.append
+            retvals_append = retvals.append
             cargs = self.args
             cfunc = self.cfunc
             ffi = self.ffi
 
-            for argi, inout in self.outargs:
+            for argi, inout in outargs:
                 argtype = cargs[argi]
                 if inout == 'o':
                     inptr = ffi.new(argtype.cname)
@@ -165,98 +162,27 @@ class CFunction(object):
                 elif inout == 'a':
                     inptr = self.get_arrayptr(args[argi], ctype=argtype)
                     args = args[:argi] + (inptr,) + args[argi+1:]
-                retargs_append((inptr, inout))
+                retvals_append((inptr, inout))
 
         retval = self.cfunc(*args)
-        checkerr = kwargs.get('checkerr')
-        if checkerr is not None:
-            check = checkerr(self, args, retval)
+        # This is a tad slower in pypy but substantially faster in cpython than
+        # checkerr = kwargs.get('checkerr'); if checkerr is not None: ...
+        if 'checkerr' in kwargs and kwargs['checkerr'] is not None:
+            retval = kwargs['checkerr'](self, args, retval)
         else:
-            check = self.checkerr(self, args, retval)
-        retval = check or retval
+            retval = self.checkerr(self, args, retval)
 
-        # TODO: use self.outargs to determine which args should be in the
-        # output and use -1 to indicate the actual return code. Also test
-        # if len(retval) == 1 and return retval_t[0].
-        if retargs:
+        if retvals:
             retval = (retval,)  # Return tuples, because it's prettier :)
-            for retarg, inout in retargs:
+            for retarg, inout in retvals:
                 if inout == 'a':
                     retval += (retarg,)  # Return arrays as-is
                 else:
                     # TODO: In some cases we don't want them unboxed... need a
-                    # good way to know when not to...
+                    # good way to specify when not to...
                     retval += (retarg[0],)  # Unbox other pointers
 
         return retval
-
-    def set_outargs(self, checkerr=None, outargs=(), inoutargs=(), arrays=(),
-                    retargs=None):
-        ''' Specify which parameter positions are intended to return values.
-
-        This feature helps to simplify dealing with pointer parameters which
-        are meant to be "return" parameters. If any of these are specified, the
-        return value from the wrapper function will be a tuple containing the
-        actual return value from the C function followed by the values of the
-        pointers which were passed in. Each list should be a list of parameter
-        position numbers (0 for the first parameter, etc).. See CObject for
-        examples and short-hand for setting up ``Function``\ s.
-
-        * ``outargs``: These will be omitted from the wrapper function
-          parameter list, and fresh pointers will be allocated (with types
-          derived from the C function signature) and inserted in to the
-          arguments list to be passed in to the C function. The pointers will
-          then be dereferenced and the value included in the return tuple.
-
-        * ``inoutargs``: Arguments passed to the wrapper function for these
-          parameters will be cast to pointers before being passed in to the C
-          function. Pointers will be unboxed in the return tuple.
-
-        * ``arrays``: Arguments to these parameters can be python lists or
-          tuples, numpy arrays or integers.
-
-          Python lists/tuples will be copied in to newly allocated CFFI
-          arrays and the pointer passed in. The generated CFFI array will be
-          in the return tuple.
-
-          Numpy arrays will have their data buffer pointer cast to a CFFI
-          pointer and passed in directly (no copying is done). The CFFI
-          pointer to the raw buffer will be returned, but any updates to the
-          array data will also be reflected in the original numpy array, so
-          it's recommended to just keep using that. (TODO: This behavior may
-          change to remove these CFFI pointers from the return tuple or maybe
-          replace the C array with the original numpy object.)
-
-          Integers will indicate that a fresh CFFI array should be allocated
-          with a length equal to the int an initialized to zeros. The generated
-          CFFI array will be included in the return tuple.
-
-        For example, a C function with this signature::
-
-            int cfunc(int inarg, int *outarg, float *inoutarg);
-
-        with ``outargs`` set to ``[1]`` and ``inoutargs`` set to ``[2]`` can be
-        called from python as::
-
-            >>> ret, ret_outarg, ret_inoutarg = wrapped_cfunc(inarg, inoutarg)
-
-        Returned values will be unboxed python values.
-
-        ``set_outargs`` returns self.
-
-        '''
-
-        self.numargs = len(self.args) - len(outargs)
-
-        outargs =  [(i, 'o') for i in outargs]
-        outargs += ((i, 'x') for i in inoutargs)
-        outargs += ((i, 'a') for i in arrays)
-
-        self.outargs = sorted(outargs)
-        self.retargs = retargs
-        self._checkerr = checkerr
-
-        return self
 
     def get_arrayptr(self, array, ctype=None):
         ''' Get a CFFI compatible pointer object for an array.
@@ -276,7 +202,7 @@ class CFunction(object):
         * Python collections: A new C array will be allocated with a length
           equal to the length of the iterable (``len()`` is called and the
           iterable is iterated over, so don't use exhaustable generators, etc).
-          ``ctype`` must be provided (Function's __call__ method does this
+          ``ctype`` must be provided (CFunction's __call__ method does this
           automatically).
 
         '''
@@ -314,10 +240,156 @@ class CFunction(object):
         else:
             return retval
 
-class CMethod(object):
-    def __init__(self, cfunc):
-        self.cfunc = cfunc
-        
+
+def wrapall(ffi, api):
+    ''' Convenience function to wrap CFFI functions structs and unions.
+
+    Reads functions, structs and unions from an API/Verifier object and wrap
+    them with the respective wrapper functions.
+
+    ``ffi``: The FFI object (needed for it's ``typeof()`` method)
+    ``api``: As returned by ``ffi.verify()``
+
+    Returns a dict mapping object names to wrapper instances. Hint: in
+    a python module that only does CFFI boilerplate, try something like::
+
+        globals().update(wrapall(myffi, myapi))
+
+    '''
+
+    # TODO: Support passing in a checkerr function to be called on the
+    # return value for all wrapped functions.
+    cobjs = {}
+    for attr in dir(api):
+        if not attr.startswith('_'):
+            cobj = getattr(api, attr)
+            if (isinstance(cobj, collections.Callable)
+                    and ffi.typeof(cobj).kind == 'function'):
+                cobj = CFunction(ffi, cobj)
+            cobjs[attr] = cobj
+
+        # The things I go through for a little bit of introspection.
+        # Just hope this doesn't change too much in CFFI's internals...
+
+    decls = ffi._parser._declarations
+    for _, ctype in decls.iteritems():
+        if isinstance(ctype, (cffi.model.StructType,
+                              cffi.model.UnionType)):
+            cobjs[ctype.get_c_name()] = CStructType(ffi, ctype)
+
+    return cobjs
+
+
+def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
+           checkerr=None):
+    ''' Wrap cfunc to simplify handling outargs, etc.
+
+    This feature helps to simplify dealing with pointer parameters which
+    are meant to be "return" parameters. If any of these are specified, the
+    return value from the wrapper function will be a tuple containing the
+    actual return value from the C function followed by the values of the
+    pointers which were passed in. Each list should be a list of parameter
+    position numbers (0 for the first parameter, etc)..
+
+    * ``outargs``: These will be omitted from the cmethod-wrapped function
+      parameter list, and fresh pointers will be allocated (with types
+      derived from the C function signature) and inserted in to the
+      arguments list to be passed in to the C function. The pointers will
+      then be dereferenced and the value included in the return tuple.
+
+    * ``inoutargs``: Arguments passed to the wrapper function for these
+      parameters will be cast to pointers before being passed in to the C
+      function. Pointers will be unboxed in the return tuple.
+
+    * ``arrays``: Arguments to these parameters can be python lists or
+      tuples, numpy arrays or integers.
+
+      * Python lists/tuples will be copied in to newly allocated CFFI
+        arrays and the pointer passed in. The generated CFFI array will be
+        in the return tuple.
+
+      * Numpy arrays will have their data buffer pointer cast to a CFFI
+        pointer and passed in directly (no copying is done). The CFFI
+        pointer to the raw buffer will be returned, but any updates to the
+        array data will also be reflected in the original numpy array, so
+        it's recommended to just keep using that. (TODO: This behavior may
+        change to remove these CFFI pointers from the return tuple or maybe
+        replace the C array with the original numpy object.)
+
+      * Integers will indicate that a fresh CFFI array should be allocated
+        with a length equal to the int an initialized to zeros. The generated
+        CFFI array will be included in the return tuple.
+
+    * ``retargs``: (Not implemented yet.) A list of values to be returned from
+      the cmethod-wrapped function. Normally the returned value will be a tuple
+      containing the actual return value of the C function, followed by the
+      final value of each of the ``outargs``, ``inoutargs``, and ``arrays`` in
+      the order they appear in the C function's paramater list.
+
+    As an example of using ``outargs`` and ``inoutargs``, a C function with
+    this signature::
+
+        int cfunc(int inarg, int *outarg, float *inoutarg);
+
+    with an ``outargs`` of ``[1]`` and ``inoutargs`` set to ``[2]`` can be
+    called from python as::
+
+        >>> wrapped_cfunc = cmethod(cfunc, outargs=[1], inoutargs=[2])
+        >>> ret, ret_outarg, ret_inoutarg = wrapped_cfunc(inarg, inoutarg)
+
+    Returned values will be unboxed python values unless otherwise documented
+    (i.e., arrays).
+
+    '''
+
+    # TODO: retargs...
+
+    if cfunc is None:
+        # TODO: There's probably something interesting to do in this case...
+        # maybe work like a decorator if cfunc isn't given?
+        return None
+
+    if not isinstance(cfunc, CFunction):
+        # Can't do argument introspection... TODO: raise an exception?
+        return cfunc
+
+    numargs = len(cfunc.args) - len(outargs)
+
+    outargs =  [(i, 'o') for i in outargs]
+    outargs += ((i, 'x') for i in inoutargs)
+    outargs += ((i, 'a') for i in arrays)
+
+    outargs.sort()
+    
+    @wraps(cfunc.cfunc)
+    def wrapper(*args):
+        if len(args) != numargs:
+            raise TypeError('wrapped Function {0} requires exactly {1} '
+                            'arguments ({2} given)'
+                            .format(cfunc.cname, numargs, len(args)))
+
+        if checkerr is None and hasattr(args[0], '_checkerr'):
+            _checkerr = args[0]._checkerr
+        else:
+            _checkerr = checkerr
+        return cfunc(*args, outargs=outargs, retargs=retargs,
+                     checkerr=_checkerr)
+
+    return wrapper
+
+
+def cstaticmethod(cfunc, **kwargs):
+    ''' Shortcut for staticmethod(cmethod(cfunc, [kwargs ...])) '''
+    return staticmethod(cmethod(cfunc, **kwargs))
+
+
+def cproperty(fget=None, fset=None, fdel=None, doc=None, checkerr=None):
+    ''' Shortcut to create ``cmethod`` wrapped ``property``\ s. '''
+    return property(fget=cmethod(fget, checkerr=checkerr),
+                    fset=cmethod(fset, checkerr=checkerr),
+                    fdel=cmethod(fdel, checkerr=checkerr),
+                    doc=doc)
+
 
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s. '''
@@ -334,6 +406,14 @@ class CStructType(object):
         * ``cname``: The C name of the struct.
         * ``ptrname``: The C pointer type signature for this struct.
         * ``fldnames``: A list of fields this struct has.
+
+        Instances of this class are essentially struct/union generators.
+        Calling an instance of ``CStructType`` will produce a newly allocated 
+        struct or union. See the ``__call__`` and ``array`` doc strings for
+        more details.
+
+        The module convenience function ``wrapall`` creates ``CStructType``\ s
+        for each struct and union imported from the FFI.
 
         '''
 
@@ -392,6 +472,7 @@ class CStructType(object):
 
         '''
 
+        # TODO: Factor out and integrate with carray function below?
         if isinstance(shape, collections.Iterable):
             suffix = '[%i]' * len(shape) % tuple(shape)
         else:
@@ -402,98 +483,28 @@ class CStructType(object):
         return self.ffi.new(self.ffi.getctype(self.cname + suffix))
 
 
-class _MetaWrap(type):
-    ''' See ``CObject``. '''
-    def __new__(mcs, name, bases, attrs):
-        # Allow sub-subclasses to inherit _meth entries from their parents.
-        if '_meths' in attrs:
-            for base in bases:
-                if hasattr(base, '_meths'):
-                    # Inherits keys from parent class without overridding
-                    # existing keys in subclass, or mucking up the parent
-                    # class's _meths dict. Simplest way I've found to do it.
-                    meths = base._meths.copy()
-                    meths.update(attrs['_meths'])
-                    attrs['_meths'] = meths
-
-        return super(_MetaWrap, mcs).__new__(mcs, name, bases, attrs)
-
-    def __init__(cls, name, bases, attrs):
-        for prop, funcs in attrs.get('_props', {}).iteritems():
-            # TODO: Support outargs in props for getter functions that take a
-            # second argument like a struct or string pointer which is filled
-            # out with the requested data.
-            if isinstance(funcs, (tuple, list)):
-                #attrs[prop] = property(*funcs)
-                setattr(cls, prop, property(*funcs))
-            else:
-                #attrs[prop] = property(funcs)
-                setattr(cls, prop, property(funcs))
-
-        for meth, cfunc in attrs.get('_meths', {}).iteritems():
-
-            # Support for (cfunc, [outargs...], [inoutargs...]) form
-            kwargs = {}
-            if isinstance(cfunc, collections.Sequence):
-
-                # (cfunc, {outargs=[1,2,3], ...}) form
-                if isinstance(cfunc[-1], dict):
-                    kwargs = cfunc[-1]
-                    cfunc = cfunc[:-1]
-
-                # (cfunc, [1,2,3], ...) outargs form
-                if len(cfunc) >= 2:
-                    kwargs['outargs'] = cfunc[1]
-
-                # (cfunc, [1,2,3], [4,5,6]) outargs + inoutargs form
-                if len(cfunc) >= 3:
-                    kwargs['inoutargs'] = cfunc[2]
-
-                # (cfunc, [1,2,3], [4,5,6], [7,8,9]) ... + arrays form
-                if len(cfunc) == 4:
-                    kwargs['arrays'] = cfunc[3]
-
-                # Unsupported form
-                if len(cfunc) > 4 or len(cfunc) < 1:
-                    raise WrapError('Wrong number of items in method ' +
-                                    'spec tuple. Must contain 1 to 4 ' +
-                                    'items. Got: {0}'.format(repr(cfunc)))
-
-                cfunc = cfunc[0]
-
-            # C functions that don't accept the wrapped object
-            if isinstance(cfunc, staticmethod):
-                cfunc = cfunc.__func__
-                cfunc.set_outargs(**kwargs)
-
-            # Usually C functions that create object. Default as static.
-            elif meth == '_cnew':
-                cfunc.set_outargs(**kwargs)
-
-            # Other methods treated like instance methods
-            else:
-                cfunc.set_outargs(**kwargs)
-                cfunc = types.MethodType(cfunc, None, cls)
-
-            #attrs[meth] = cfunc
-            setattr(cls, meth, cfunc)
-
-
 class CObject(object):
-    ''' A pythonic representation of a C "object", usually representing a set
-    of C functions that operate over a common peice of data. Many C APIs have
-    lots of functions which accept some common struct pointer or identifier as
-    the first argument being manipulated. CObject provides a convenient
-    abstrtaction to making this convention more "object oriented". See the
-    example below. More examples can be found in the unit tests.
+    ''' A pythonic representation of a C "object"
+    
+    Usually representing a set of C functions that operate over a common peice
+    of data. Many C APIs have lots of functions which accept some common struct
+    pointer or identifier int as the first argument being manipulated. CObject
+    provides a convenient abstrtaction to making this convention more "object
+    oriented". See the example below. More examples can be found in the
+    cffiwrap unit tests.
 
-    Intended for subclassing. Subclass should have a ``_props`` and/or
-    ``_meths`` attribute.
+    Use ``cproperty`` and ``cmethod`` to wrap CFFI C functions to behave like
+    instance methods, passing the instance in as the first argument. See the
+    doc strings for each above.
 
-    The ``_props`` class attribute is a dict mapping ``propery`` names to
-    Function functions. Keys in this dict are accessed from the Python object
-    as attributes and return the result of calling the Function object with
-    self as the only argument. For example:
+    For C types which are not automatically coerced/converted by CFFI (such as
+    C functions accepting struct pointers, etc) the subclass can set a class-
+    or instance-attribute named ``_cdata`` which will be passed to the CFFI
+    functions instead of ``self``. The CObject can also have a ``_cnew`` static
+    method (see ``cstaticmethod``) which will be called by the base class's
+    ``__init__`` and the returned value assigned to the instances ``_cdata``.
+
+    For example:
 
     libexample.h::
 
@@ -512,114 +523,60 @@ class CObject(object):
 
         >>> import cffiwrap as wrap
         >>> class Point(wrap.CObject):
-        ...     _props = {
-        ...         'x': libexample.point_x,
-        ...         'y': libexample.point_y
-        ...     }
-        ...     def __init__(self, x, y):
-        ...         self.id = ffi.make_point(x, y)
-        ...         super(Point, self).__init__()
-        ...     def __int__(self):
-        ...         """
-        ...         Called automatically by CFFI when being passed as an int
-        ...         argument to a C function.
-        ...         """
-        ...         return self.id
+        ...     x = cproperty(libexample.point_x, libexample.point_setx)
+        ...     y = cproperty(libexample.point_y, libexample.point_sety)
+        ...     _cnew = cstaticmethod(libexample.make_point)
         ... 
         >>> p = Point(4, 2)
         >>> p.x
         4
+        >>> p.x = 8
+        >>> p.x
+        8
         >>> p.y
         2
 
-    The wrapped C functions are called each time the property is retrieved from
-    the Point instance.
+    You can also specify a destructor with a ``_cdel`` method in the same way
+    as ``_cnew``.
 
-    Properties can also have "setter" functions. Simply replace the values in
-    the ``_props`` dict with a 2-tuple with the "getter" and "setter"
-    functions::
+    Alternatively you can assign a CFFI compatible object (either an actual
+    CFFI CData object, or something CFFI automatically converts like and int)
+    to the instance's _cdata attribute.
+
+    ``cmethod`` wraps a CFunction to provide an easy way to handle 'output'
+    pointer arguments, arrays, etc. (See the ``cmethod`` documentation.)::
 
         >>> class Point2(Point):
-        ...     _props = {
-        ...         'x': (libexample.point_x, libexample.point_setx),
-        ...         'y': (libexample.point_y, libexample.point_sety)
-        ...     }
+        ...     move = cmethod(libexample.point_move)
         ... 
-        >>> p2 = Point2(7, 4)
-        >>> p2.x
-        7
-        >>> p2.x = 8
-        >>> p2.x
-        8
-
-    Subclasses can also define a ``_meths`` dict for more general methods. If a
-    method named "``_cnew``" is defined, this will be called by ``__init__``
-    and the return value assigned to the ``_cdata`` instance attribute::
-
-        >>> class Point3(Point):
-        ...     _meths = {'move': libexample.point_move}
-        ... 
-        >>> p3 = Point3(8, 2)
-        >>> p3.move(2, 2)
+        >>> p2 = Point2(8, 2)
+        >>> p2.move(2, 2)
         0
-        >>> p3.x
+        >>> p2.x
         10
-        >>> p3.y
+        >>> p2.y
         4
 
-    Sub-subclasses of CObject will also inherit individual methods and
-    properties from their parents:
-
-        >>> class Point4(Point3):
-        ...     _meths = {'x_abs': libexample.point_x_abs}
-        ...     _props = {'movex': libexample.point_movex}
-        ... 
-        >>> p4 = Point4(-5, 10)
-        >>> p4.x_abs
-        5
-        >>> p4.x
-        -5
-        >>> p4.movex(3)
-        0
-        >>> (p4.x, p4.y)
-        (-2, 10)
-        >>> p4.move(7, -20)
-        0
-        >>> (p4.x, p4.y)
-        (5, -10)
-
-    The values in the _meths dict can also be a tuple with the C function as
-    the first element, the second and third being the "outargs" and "inoutargs"
-    to the Function constructor.
-
-    TODO: Come up with not-too-ridiculously-contrived example. For now, check
-    out the unit tests for some examples.
-
-    TODO: Document arrays and passing kwargs to Function.
-
-    Optionally, for C types which are not automatically coerced/converted by
-    CFFI (such as struct pointers) the subclass can set a class- or instance-
-    attribute named ``_cdata`` which will be passed to the CFFI functions
-    instead of ``self``. For example:
+    If _cdata is set, attributes of the cdata object can also be retrieved from
+    the CObject instance, e.g., for struct fields, etc.
 
     libexample cdef::
 
-        typedef struct { int x; ...; } mystruct;
-        mystruct* make_mystruct(int x);
+        typedef struct { int x; int y; ...; } mystruct;
+        mystruct* make_mystruct(int x, int y);
         int mystruct_x(mystruct* ms);
 
     python::
 
-        >>> import cffiwrap as wrap
         >>> class MyStruct(wrap.CObject):
-        ...     _props = {'x': libexample.mystruct_x}
-        ...     _meths = {'_make': libexample.make_mystruct}
-        ...     def __init__(self, x):
-        ...         self._cdata = self._make(x)
+        ...     x = cproperty(libexample.mystruct_x)
+        ...     _cnew = cstaticmethod(libexample.make_mystruct)
         ... 
-        >>> ms = MyStruct(4)
-        >>> ms.x
+        >>> ms = MyStruct(4, 2)
+        >>> ms.x  # Call to mystruct_x via cproperty
         4
+        >>> ms.y  # direct struct field access
+        2
 
     Note: stack-passed structs are not supported yet* but pointers to
     structs work as expected if you set the ``_cdata`` attribute to the
@@ -627,73 +584,25 @@ class CObject(object):
 
     * https://bitbucket.org/cffi/cffi/issue/102
 
-    An ``CObject`` can also specify a method named ``_cnew`` which will be
-    called when the class is instantiated. This can be declared in the
-    ``_meths`` dict or be a normal method on the class. Any arguments given
-    when the class is called will be passed to this method. The return value
-    will be automatically assigned to the ``_cdata`` instance attribute.
-
-    If _cdata is set, attributes of the cdata object can also be retrieved from
-    the CObject instance, e.g., for struct fields, etc.
-
-    You can also specify a destructor with a ``_del`` method in the same way as
-    ``_cnew``.
 
     '''
 
-    __metaclass__ = _MetaWrap
     _cdata = None
 
     def __init__(self, *args):
-        if hasattr(self, '_cnew') and self._cnew is not None:
+        if hasattr(self, '_cnew'):
             self._cdata = self._cnew(*args)
 
     def __getattr__(self, attr):
         if self._cdata is not None and hasattr(self._cdata, attr):
             return getattr(self._cdata, attr)
+        else:
+            raise AttributeError("{0} object has no attribute {1}"
+                                 .format(repr(self.__class__), repr(attr)))
 
     def __del__(self):
-        if hasattr(self, '_del'):
-            self._del()
-
-
-def wrapall(ffi, api):
-    ''' Convenience function to wrap CFFI functions structs and unions.
-
-    Reads functions, structs and unions from an API/Verifier object and wrap
-    them with the respective wrapper functions.
-
-    ``ffi``: The FFI object (needed for it's ``typeof()`` method)
-    ``api``: As returned by ``ffi.verify()``
-
-    Returns a dict mapping object names to wrapper instances. Hint: in
-    a python module that only does CFFI boilerplate, try something like::
-
-        globals().update(wrapall(myffi, myapi))
-
-    '''
-
-    # TODO: Support passing in a checkerr function to be called on the
-    # return value for all wrapped functions.
-    cobjs = {}
-    for attr in dir(api):
-        if not attr.startswith('_'):
-            cobj = getattr(api, attr)
-            if (isinstance(cobj, collections.Callable)
-                    and ffi.typeof(cobj).kind == 'function'):
-                cobj = CFunction(ffi, cobj)
-            cobjs[attr] = cobj
-
-        # The things I go through for a little bit of introspection.
-        # Just hope this doesn't change too much in CFFI's internals...
-
-    decls = ffi._parser._declarations
-    for _, ctype in decls.iteritems():
-        if isinstance(ctype, (cffi.model.StructType,
-                              cffi.model.UnionType)):
-            cobjs[ctype.get_c_name()] = CStructType(ffi, ctype)
-
-    return cobjs
+        if hasattr(self, '_cdel'):
+            self._cdel()
 
 
 def nparrayptr(nparr):
