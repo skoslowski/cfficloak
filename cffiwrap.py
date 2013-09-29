@@ -64,7 +64,6 @@ class CFunction(object):
 
     * ``ffi``: The FFI object the C function is from.
     * ``cfunc``: The C function object from CFFI.
-    * Any extra keyword args are passed to ``set_outargs``.
 
     Attributes added to instances:
 
@@ -251,8 +250,8 @@ def wrapall(ffi, api):
     Reads functions, structs and unions from an API/Verifier object and wrap
     them with the respective wrapper functions.
 
-    ``ffi``: The FFI object (needed for it's ``typeof()`` method)
-    ``api``: As returned by ``ffi.verify()``
+    * ``ffi``: The FFI object (needed for it's ``typeof()`` method)
+    * ``api``: As returned by ``ffi.verify()``
 
     Returns a dict mapping object names to wrapper instances. Hint: in
     a python module that only does CFFI boilerplate, try something like::
