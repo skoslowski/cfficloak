@@ -36,6 +36,7 @@ except ImportError:
 
 __all__ = [
     'CFunction',
+    'CStructType',
     'CObject',
     'NullError',
     'cmethod',
