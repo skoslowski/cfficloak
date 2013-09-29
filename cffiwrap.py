@@ -56,11 +56,10 @@ class NullError(Exception):
 
 
 class CFunction(object):
-    ''' Adds some low-ish-level introspection to CFFI C functions and
-    provides a convenience function for wrapping all the functions in an
-    API. This is useful for automatic or "batch" wrapping of general C
-    functions. Most other wrapper classes expect API functions to be
-    wrapped in a CFunction. See ``wrapall()`` below.
+    ''' Adds some low-ish-level introspection to CFFI C functions.
+
+    Most other wrapper classes and fuctions expect API functions
+    to be wrapped in a CFunction. See ``wrapall()`` below.
 
     * ``ffi``: The FFI object the C function is from.
     * ``cfunc``: The C function object from CFFI.
@@ -76,7 +75,7 @@ class CFunction(object):
     * ``result``: From typeof.
 
     Callable: when called, the cfunc is called directly and it's result
-    is returned.
+    is returned. See ``cmethod`` for more uses.
 
     '''
 
@@ -520,8 +519,8 @@ class CObject(object):
 
     Python usage (where libexample is an API object from ``ffi.verify()``)::
 
-        >>> import cffiwrap as wrap
-        >>> class Point(wrap.CObject):
+        >>> from cffiwrap import CObject, cproperty, cmethod, cstaticmethod
+        >>> class Point(CObject):
         ...     x = cproperty(libexample.point_x, libexample.point_setx)
         ...     y = cproperty(libexample.point_y, libexample.point_sety)
         ...     _cnew = cstaticmethod(libexample.make_point)
