@@ -42,6 +42,9 @@ __all__ = [
     'cmethod',
     'cstaticmethod',
     'cproperty',
+    'wrapall',
+    'carray',
+    'nparrayptr',
 ]
 
 
