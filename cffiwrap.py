@@ -52,32 +52,32 @@ class NullError(Exception):
 
 
 class CFunction(object):
+    ''' Adds some low-ish-level introspection to CFFI C functions and
+    provides a convenience function for wrapping all the functions in an
+    API. This is useful for automatic or "batch" wrapping of general C
+    functions. Most other wrapper classes expect API functions to be
+    wrapped in a CFunction. See ``wrapall()`` below.
+
+    * ``ffi``: The FFI object the C function is from.
+    * ``cfunc``: The C function object from CFFI.
+    * Any extra keyword args are passed to ``set_outargs``.
+
+    Attributes added to instances:
+
+    * ``cfunc``: The C function object.
+    * ``ffi``: The FFI object the C function is from.
+    * ``typeof``: ffi.typeof(cfunc)
+    * ``cname``: From typeof.
+    * ``args``: From typeof.
+    * ``kind``: From typeof.
+    * ``result``: From typeof.
+
+    Callable: when called, the cfunc is called directly and it's result
+    is returned.
+
+    '''
+
     def __init__(self, ffi, cfunc):
-        ''' Adds some low-ish-level introspection to CFFI C functions and
-        provides a convenience function for wrapping all the functions in an
-        API. This is useful for automatic or "batch" wrapping of general C
-        functions. Most other wrapper classes expect API functions to be
-        wrapped in a CFunction. See ``wrapall()`` below.
-
-        * ``ffi``: The FFI object the C function is from.
-        * ``cfunc``: The C function object from CFFI.
-        * Any extra keyword args are passed to ``set_outargs``.
-
-        Attributes added to instances:
-
-        * ``cfunc``: The C function object.
-        * ``ffi``: The FFI object the C function is from.
-        * ``typeof``: ffi.typeof(cfunc)
-        * ``cname``: From typeof.
-        * ``args``: From typeof.
-        * ``kind``: From typeof.
-        * ``result``: From typeof.
-
-        Callable: when called, the cfunc is called directly and it's result
-        is returned.
-
-        '''
-
         # This is basically a hack to work around the lack of introspection
         # built-in to CFFI CData function objects. The overhead should be
         # negligable since the CFFI function is directly assigned to __call__
@@ -229,7 +229,7 @@ class CFunction(object):
 
         '''
 
-        #TODO: Maybe should generalize to "_returnhandler" or something?
+        #TODO: Maybe should generalize to "returnhandler" or something?
 
         #if self._checkerr is not None:
         #    self._checkerr(cfunc, args, retval)
@@ -392,31 +392,35 @@ def cproperty(fget=None, fset=None, fdel=None, doc=None, checkerr=None):
 
 
 class CStructType(object):
-    ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s. '''
+    ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
+
+    * ``ffi``: The FFI object.
+    * ``structtype``: a CFFI StructType or a string for the type name
+      (wihtout any trailing '*' or '[]').
+
+    Instances have the following attributes:
+
+    * ``ffi``: The FFI object this struct is pulled from.
+    * ``cname``: The C name of the struct.
+    * ``ptrname``: The C pointer type signature for this struct.
+    * ``fldnames``: A list of fields this struct has.
+
+    Instances of this class are essentially struct/union generators.
+    Calling an instance of ``CStructType`` will produce a newly allocated 
+    struct or union. 
+
+    Struct fields can be passed in as positional arguments or keyword
+    arguments. ``TypeError`` is raised if positional arguments overlap with
+    given keyword arguments.
+
+    Arrays of structs can be created with the ``array`` method.
+
+    The module convenience function ``wrapall`` creates ``CStructType``\ s
+    for each struct and union imported from the FFI.
+
+    '''
+
     def __init__(self, ffi, structtype):
-        ''' Create a new CStructType.
-
-        * ``ffi``: The FFI object.
-        * ``structtype``: a CFFI StructType or a string for the type name
-          (wihtout any trailing '*' or '[]').
-
-        Instances have the following attributes:
-
-        * ``ffi``: The FFI object this struct is pulled from.
-        * ``cname``: The C name of the struct.
-        * ``ptrname``: The C pointer type signature for this struct.
-        * ``fldnames``: A list of fields this struct has.
-
-        Instances of this class are essentially struct/union generators.
-        Calling an instance of ``CStructType`` will produce a newly allocated 
-        struct or union. See the ``__call__`` and ``array`` doc strings for
-        more details.
-
-        The module convenience function ``wrapall`` creates ``CStructType``\ s
-        for each struct and union imported from the FFI.
-
-        '''
-
         if isinstance(structtype, str):
             structtype = ffi._parser.parse_type(structtype)
 
@@ -429,14 +433,6 @@ class CStructType(object):
         self.fldnames = structtype.fldnames
 
     def __call__(self, *args, **kwargs):
-        ''' Returns a pointer to a new CFFI struct instance for the given type.
-
-        Struct fields can be passed in as positional arguments or keyword
-        arguments. ``TypeError`` is raised if positional arguments overlap with
-        given keyword arguments.
-
-        '''
-
         if self.fldnames is None:
             if args or kwargs:
                 raise TypeError('CStructType call with arguments on opaque '

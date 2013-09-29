@@ -219,7 +219,7 @@ class TestInherit:
         assert mytwo.add(2) == 2+2
 
 
-### Override inheritanc tests ###
+### Override inheritance tests ###
 
 # Just to check aesthetics...
 myint_succ2 = cfuncs['myint_succ2']
@@ -243,7 +243,7 @@ class TestOverride:
         assert hasattr(mythree, 'succ')
         assert mythree.succ == 3+2
 
-    # MyInt doesn't have doubled. Make sure it's not lost in the dict merge.
+    # MyInt doesn't have 'doubled'. Make sure it's not lost in inheritance.
     def test_doubled(self, mythree):
         assert hasattr(mythree, 'doubled')
         assert mythree.doubled == 3*2
@@ -258,7 +258,7 @@ class TestOverride:
         assert hasattr(mythree, 'mult')
         assert mythree.mult(3) == 3*3
 
-    # Make sure the null method 'falls through'.
+    # Make sure the null method exception 'falls through'.
     def test_null(self, mythree):
         assert hasattr(mythree, 'null')
         with raises(MyError):
