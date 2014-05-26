@@ -196,7 +196,7 @@ class CFunction(object):
           but the numpy C buffer is updated in place, so continue to use the
           numpy ndarray object.
         * CFFI CData pointers: If the user is already working with C arrays
-          (i.e., ffi.new(``int[10]``)) these will be returned as given.
+          (i.e., ``ffi.new("int[10]"))`` these will be returned as given.
         * Python ints and longs: These will be interpretted as the length of a
           newly allocated C array. The pointer to this array will be
           returned. ``ctype`` must be provided (CFunction's __call__ method
@@ -253,7 +253,9 @@ def wrapall(ffi, api):
     * ``api``: As returned by ``ffi.verify()``
 
     Returns a dict mapping object names to wrapper instances. Hint: in
-    a python module that only does CFFI boilerplate, try something like::
+    a python module that only does CFFI boilerplate and verification, etc, try
+    something like this to make the C values available directly from the module
+    itself::
 
         globals().update(wrapall(myffi, myapi))
 
@@ -319,7 +321,7 @@ def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
         replace the C array with the original numpy object.)
 
       * Integers will indicate that a fresh CFFI array should be allocated
-        with a length equal to the int an initialized to zeros. The generated
+        with a length equal to the int and initialized to zeros. The generated
         CFFI array will be included in the return tuple.
 
     * ``retargs``: (Not implemented yet.) A list of values to be returned from
@@ -331,7 +333,7 @@ def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
     As an example of using ``outargs`` and ``inoutargs``, a C function with
     this signature::
 
-        int cfunc(int inarg, int *outarg, float *inoutarg);
+        ``int cfunc(int inarg, int *outarg, float *inoutarg);``
 
     with an ``outargs`` of ``[1]`` and ``inoutargs`` set to ``[2]`` can be
     called from python as::
@@ -386,7 +388,24 @@ def cstaticmethod(cfunc, **kwargs):
 
 
 def cproperty(fget=None, fset=None, fdel=None, doc=None, checkerr=None):
-    ''' Shortcut to create ``cmethod`` wrapped ``property``\ s. '''
+    ''' Shortcut to create ``cmethod`` wrapped ``property``\ s.
+
+    E.g., this:
+
+        >>> class MyCObj(CObject):
+        ...     x = property(cmethod(get_x_cfunc), cmethod(set_x_cfunc))
+
+    becomes:
+
+        >>> class MyCObj(CObject):
+        ...     x = cproperty(get_x_cfunc, set_x_cfunc)
+
+    If you need more control of the outargs/etc of the cmethods, stick to the
+    first form, or create and assign individual cmethods and put them in a
+    normal property.
+
+    '''
+
     return property(fget=cmethod(fget, checkerr=checkerr),
                     fset=cmethod(fset, checkerr=checkerr),
                     fdel=cmethod(fdel, checkerr=checkerr),
@@ -395,10 +414,6 @@ def cproperty(fget=None, fset=None, fdel=None, doc=None, checkerr=None):
 
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
-
-    * ``ffi``: The FFI object.
-    * ``structtype``: a CFFI StructType or a string for the type name
-      (wihtout any trailing '*' or '[]').
 
     Instances have the following attributes:
 
@@ -423,6 +438,14 @@ class CStructType(object):
     '''
 
     def __init__(self, ffi, structtype):
+        '''
+
+        * ``ffi``: The FFI object.
+        * ``structtype``: a CFFI StructType or a string for the type name
+          (wihtout any trailing '*' or '[]').
+
+        '''
+
         if isinstance(structtype, str):
             structtype = ffi._parser.parse_type(structtype)
 
@@ -465,19 +488,19 @@ class CStructType(object):
           pointers just add an extra demension with length 1. I.e., [2,2,1] is
           a 2x2 array of pointers to structs.
 
-        No initialization of the elements is performed. CFFI initializes newly
-        allocated memory to zeros.
+        No explicit initialization of the elements is performed, however CFFI
+        itself automatically initializes newly allocated memory to zeros.
 
         '''
 
         # TODO: Factor out and integrate with carray function below?
         if isinstance(shape, collections.Iterable):
-            suffix = '[%i]' * len(shape) % tuple(shape)
+            suffix = ('[%i]' * len(shape)) % tuple(shape)
         else:
             suffix = '[%i]' % (shape,)
 
         # TODO Allow passing initialization args? Maybe factor out some of the
-        # code in __call__?
+        # code in CStructType.__call__?
         return self.ffi.new(self.ffi.getctype(self.cname + suffix))
 
 
@@ -500,7 +523,7 @@ class CObject(object):
     or instance-attribute named ``_cdata`` which will be passed to the CFFI
     functions instead of ``self``. The CObject can also have a ``_cnew`` static
     method (see ``cstaticmethod``) which will be called by the base class's
-    ``__init__`` and the returned value assigned to the instances ``_cdata``.
+    ``__init__`` and the returned value assigned to the instance's ``_cdata``.
 
     For example:
 
@@ -517,7 +540,8 @@ class CObject(object):
         int point_x_abs(point_t p);
         int point_movex(point_t p, int x);
 
-    Python usage (where libexample is an API object from ``ffi.verify()``)::
+    Python usage (where ``libexample`` is an API object from
+    ``ffi.verify()``)::
 
         >>> from cffiwrap import CObject, cproperty, cmethod, cstaticmethod
         >>> class Point(CObject):
@@ -566,7 +590,7 @@ class CObject(object):
 
     python::
 
-        >>> class MyStruct(wrap.CObject):
+        >>> class MyStruct(CObject):
         ...     x = cproperty(libexample.mystruct_x)
         ...     _cnew = cstaticmethod(libexample.make_mystruct)
         ... 
@@ -585,11 +609,13 @@ class CObject(object):
 
     '''
 
-    _cdata = None
-
-    def __init__(self, *args):
-        if hasattr(self, '_cnew'):
-            self._cdata = self._cnew(*args)
+    def __init__(self, *args, **kwargs):
+        if not hasattr(self, '_cdata') and self._cdata is not None:
+            if hasattr(self, '_cnew'):
+                # C functions don't accept kwargs, so we just ignore them.
+                self._cdata = self._cnew(*args)
+            else:
+                self._cdata = None
 
     def __getattr__(self, attr):
         if self._cdata is not None and hasattr(self._cdata, attr):
