@@ -610,7 +610,7 @@ class CObject(object):
     '''
 
     def __init__(self, *args, **kwargs):
-        if not hasattr(self, '_cdata') and self._cdata is not None:
+        if not hasattr(self, '_cdata') or self._cdata is None:
             if hasattr(self, '_cnew'):
                 # C functions don't accept kwargs, so we just ignore them.
                 self._cdata = self._cnew(*args)
