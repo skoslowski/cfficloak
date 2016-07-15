@@ -627,6 +627,14 @@ class CStructType(object):
         return self.ffi.new(self.ffi.getctype(self.cname + suffix))
 
 
+class CUnion(CStruct):
+    def __init__(self, ffi, uniontype):
+        super(CUnion, self).__init__(ffi, uniontype)
+
+
+class CUnionType(CStructType):
+    def __init__(self, ffi, uniontype):
+        super(CUnionType, self).__init__(ffi, uniontype)
 class CObject(object):
     ''' A pythonic representation of a C "object"
     
