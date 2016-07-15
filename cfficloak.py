@@ -155,6 +155,20 @@ class CFunction(object):
             for argi, arg in enumerate(args):
                 if hasattr(arg, '_cdata') and arg._cdata is not None:
                     args = args[:argi] + (arg._cdata,) + args[argi+1:]
+                elif arg is None:
+                    args = args[:argi] + (self.ffi.NULL,) + args[argi + 1:]
+                elif isinstance(arg, six.text_type):
+                    if 'wchar' in self.args[argi].cname:
+                        arg = self.ffi.new('wchar[]', arg)
+                    elif 'char' in self.args[argi].cname:
+                        arg = self.ffi.new('char[]', arg.encode())
+                    args = args[:argi] + (arg,) + args[argi + 1:]
+                elif isinstance(arg, six.binary_type):
+                    if 'wchar' in self.args[argi].cname:
+                        arg = self.ffi.new('wchar[]', arg.decode())
+                    elif 'char' in self.args[argi].cname:
+                        arg = self.ffi.new('char[]', arg)
+                    args = args[:argi] + (arg,) + args[argi + 1:]
 
         # If this function has out or in-out pointer args, create the pointers
         # for each, and insert/replace them in the argument list before passing

@@ -1,7 +1,7 @@
 cfficloak - A simple but flexible module for creating object-oriented, pythonic CFFI wrappers.
-This is an extension of cfficloak from https://bitbucket.org/memotype/cfficloak
+This is an extension of cfficloak from https://bitbucket.org/memotype/cffiwrap
 
-The intension is to more fully wrap/hide binary extensions build with cffi to improve auto-completion,  inspection of objects and reading/writing/copying/assigning to c objects, especially structs and unions.
+The intension is to more fully wrap/hide binary extensions build with cffi to improve auto-completion, inspection of objects and reading/writing/copying/assigning to c objects, especially structs and unions.
 
 Install with 
 # pip install cfficloak
