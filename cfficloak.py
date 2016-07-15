@@ -431,6 +431,88 @@ def cproperty(fget=None, fset=None, fdel=None, doc=None, checkerr=None):
                     doc=doc)
 
 
+class CStruct(object):
+    ''' Provides introspection to an instantiation of a CFFI ``StructType``s and ``UnionType``s.
+
+    Instances of this class are essentially struct/union wrappers.
+    Field names are easily inspected and transparent conversion of data types is done
+    where possible.
+
+    Struct fields can be passed in as positional arguments or keyword
+    arguments. ``TypeError`` is raised if positional arguments overlap with
+    given keyword arguments.
+
+    The module convenience function ``wrapall`` creates ``CStruct``\ s
+    for each instantiated struct and union imported from the FFI.
+
+    '''
+
+    def __init__(self, ffi, struct):
+        '''
+
+        * ``ffi``: The FFI object.
+        * ``structtype``: a CFFI StructType or a string for the type name
+          (wihtout any trailing '*' or '[]').
+
+        '''
+
+        self.__fldnames = None
+        self.__pfields = {}  # This is used to hold python wrappers that are linked to the underlying fields cdata
+
+        assert isinstance(struct, ffi.CData)
+
+        self._cdata = struct
+        self.__struct_type = ffi.typeof(struct)
+
+        if self.__struct_type.kind == 'pointer':
+            self.__struct_type = self.__struct_type.item
+
+        self._ffi = ffi
+
+        # Sometimes structtype.name starts with a '$'...?
+        try:
+            self._cname = self.__struct_type.cname
+        except AttributeError:
+            self._cname = self.__struct_type.get_c_name()
+
+        self.__fldnames = None if self.__struct_type.fields is None else {detail[0]: detail[1].type for detail in self.__struct_type.fields}
+
+    def __dir__(self):
+        """
+        List the struct fields as well
+        """
+        return super(CStruct, self).__dir__() + (list(self.__fldnames.keys()) if self.__fldnames else [])
+
+    def __getattr__(self, item):
+        if item != '__fldnames' and self.__fldnames and item in self.__fldnames:
+            attr = self.__pfields.get(item, self._cdata.__getattribute__(item))
+            if isinstance(attr, self._ffi.CData):
+                pattr = wrap(self._ffi, attr)
+                if pattr is not attr:
+                    self.__pfields[item] = pattr
+                    if isinstance(pattr, types.LambdaType):
+                        attr = pattr(attr)
+                    else:
+                        attr = pattr
+            return attr
+        return super(CStruct, self).__getattribute__(item)
+
+    def __setattr__(self, key, value):
+        if key != '__fldnames' and self.__fldnames and key in self.__fldnames:
+            if self.__fldnames[key].cname == 'unsigned char *':
+                if isinstance(value, numpy.ndarray):
+                    self.__pfields[key] = value
+                    value = nparrayptr(value)
+                elif isinstance(value, (bytes, str)):
+                    self.__pfields[key] = lambda x: self._ffi.string(x)
+                    value = self._ffi.new('char[]', value) # todo untested
+            elif hasattr(value, '_cdata') and value._cdata is not None:
+                value = value._cdata
+            return setattr(self._cdata, key, value)
+        else:
+            return super(CStruct, self).__setattr__(key, value)
+
+
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
 
