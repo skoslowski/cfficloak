@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2013, Isaac Freeman <memotype@gmail.com>
+# Copyright (c) 2016, Andrew Leech <andrew@alelec.net>
 # All rights reserved.
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,8 +28,8 @@ import os
 from pytest import *
 
 import cffi
-import cffiwrap as wrap
-from cffiwrap import cmethod, cstaticmethod, cproperty
+import cfficloak as wrap
+from cfficloak import cmethod, cstaticmethod, cproperty
 
 
 ### FFI boilerplate ###

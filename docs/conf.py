@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# cffiwrap documentation build configuration file, created by
+# cfficloak documentation build configuration file, created by
 # sphinx-quickstart on Sun Sep  8 23:42:47 2013.
 #
 # This file is execfile()d with the current directory set to its containing dir.
@@ -41,8 +41,8 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'cffiwrap'
-copyright = u'2013, Isaac Freeman'
+project = u'cfficloak'
+copyright = u'2016, Andrew Leech'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -165,7 +165,7 @@ html_static_path = ['_static']
 #html_file_suffix = None
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'cffiwrapdoc'
+htmlhelp_basename = 'cfficloakdoc'
 
 
 # -- Options for LaTeX output --------------------------------------------------
@@ -184,8 +184,8 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-  ('index', 'cffiwrap.tex', u'cffiwrap Documentation',
-   u'Isaac Freeman', 'manual'),
+  ('index', 'cfficloak.tex', u'cfficloak Documentation',
+   u'Andrew Leech', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -214,8 +214,8 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ('index', 'cffiwrap', u'cffiwrap Documentation',
-     [u'Isaac Freeman'], 1)
+    ('index', 'cfficloak', u'cfficloak Documentation',
+     [u'Andrew Leech'], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -228,8 +228,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-  ('index', 'cffiwrap', u'cffiwrap Documentation',
-   u'Isaac Freeman', 'cffiwrap', 'One line description of project.',
+  ('index', 'cfficloak', u'cfficloak Documentation',
+   u'Andrew Leech', 'cfficloak', 'One line description of project.',
    'Miscellaneous'),
 ]
 

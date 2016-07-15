@@ -1,4 +1,4 @@
-# Copyright (c) 2013, Isaac Freeman <memotype@gmail.com>
+# Copyright (c) 2016, Andrew Leech <andrew@alelec.net>
 # All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,20 +15,24 @@
 #
 # The full license is also available in the file LICENSE.apache-2.0.txt
 
-
-from distutils.core import setup
+import os
+from setuptools import setup
 
 #This is a list of files to install, and where
 #(relative to the 'root' dir, where setup.py is)
 #You could be more specific.
-files = ['cffiwrap.py']
+files = ['cfficloak.py']
 
-setup(name = 'cffiwrap',
+with open(os.path.join(os.path.dirname(__file__), 'README.txt')) as readme:
+    long_description = readme.read()
+    
+setup(name = 'cfficloak',
     version = '0.1',
     description = 'A simple but flexible module for creating '
                   'object-oriented, pythonic CFFI wrappers.',
-    author = 'Isaac Freeman',
-    author_email = 'memotype@gmail.com',
-    url = 'https://bitbucket.org/memotype/cffiwrap',
-    py_modules = ['cffiwrap']
+    long_description = long_description,
+    author = 'Andrew Leech',
+    author_email = 'andrew@alelec.net',
+    url = 'https://github.com/andrewleech/cfficloak',
+    py_modules = ['cfficloak']
 ) 

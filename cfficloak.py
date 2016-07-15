@@ -1,4 +1,4 @@
-# Copyright (c) 2013, Isaac Freeman <memotype@gmail.com>
+# Copyright (c) 2016, Andrew Leech <andrew@alelec.net>
 # All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -512,7 +512,7 @@ class CObject(object):
     pointer or identifier int as the first argument being manipulated. CObject
     provides a convenient abstrtaction to making this convention more "object
     oriented". See the example below. More examples can be found in the
-    cffiwrap unit tests.
+    cfficloak unit tests.
 
     Use ``cproperty`` and ``cmethod`` to wrap CFFI C functions to behave like
     instance methods, passing the instance in as the first argument. See the
@@ -543,7 +543,7 @@ class CObject(object):
     Python usage (where ``libexample`` is an API object from
     ``ffi.verify()``)::
 
-        >>> from cffiwrap import CObject, cproperty, cmethod, cstaticmethod
+        >>> from cfficloak import CObject, cproperty, cmethod, cstaticmethod
         >>> class Point(CObject):
         ...     x = cproperty(libexample.point_x, libexample.point_setx)
         ...     y = cproperty(libexample.point_y, libexample.point_sety)

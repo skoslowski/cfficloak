@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, Isaac Freeman <memotype@gmail.com>
+/* Copyright (c) 2016, Andrew Leech <andrew@alelec.net>
 * All rights reserved.
 * 
 * Licensed under the Apache License, Version 2.0 (the "License");
