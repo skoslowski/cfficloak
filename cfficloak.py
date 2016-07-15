@@ -19,10 +19,12 @@
 ''' A collection of convenience classes and functions for CFFI wrappers. '''
 
 
-import types
 import collections
 from functools import wraps
-import cffi
+try:
+    import cffi
+except ImportError:
+    cffi = None
 
 try:
     try:
@@ -48,7 +50,10 @@ __all__ = [
 ]
 
 
-_empty_ffi = cffi.FFI()
+if cffi:
+    _global_ffi = cffi.FFI()
+else:
+    _global_ffi = None
 
 
 class NullError(Exception):
@@ -219,8 +224,7 @@ class CFunction(object):
             return self.ffi.new(self.ffi.getctype(ctype.item.cname, '[]'),
                                 array)
 
-    @staticmethod
-    def checkerr(cfunc, args, retval):
+    def checkerr(self, cfunc, args, retval):
         ''' Default error checker. Checks for NULL return values and raises
         NullError.
 
@@ -236,7 +240,7 @@ class CFunction(object):
         #if self._checkerr is not None:
         #    self._checkerr(cfunc, args, retval)
 
-        if retval == cffi.FFI.NULL:
+        if retval == self.ffi.NULL:
             raise NullError('NULL returned by {0} with args {1}. '
                             .format(cfunc.cname, args))
         else:
@@ -264,6 +268,9 @@ def wrapall(ffi, api):
     # TODO: Support passing in a checkerr function to be called on the
     # return value for all wrapped functions.
     cobjs = {}
+    global _global_ffi
+    if _global_ffi is None:
+        _global_ffi = ffi
     for attr in dir(api):
         if not attr.startswith('_'):
             cobj = getattr(api, attr)
@@ -633,7 +640,8 @@ def nparrayptr(nparr):
     ''' Convenience function for getting the CFFI-compatible pointer to a numpy
     array object. '''
 
-    return _empty_ffi.cast('void *', nparr.__array_interface__['data'][0])
+    if _global_ffi:
+        return _global_ffi.cast('void *', nparr.__array_interface__['data'][0])
 
 
 def carray(items_or_size=None, size=None, ctype='int'):
@@ -642,21 +650,19 @@ def carray(items_or_size=None, size=None, ctype='int'):
     # TODO: Support multi-dimensional arrays? Maybe it's just easier to stick
     # with numpy...
 
-    if isinstance(items_or_size, (int, long)) and size is None:
-        size = items_or_size
-        items = None
-    else:
-        items = items_or_size
+    if _global_ffi:
+        if isinstance(items_or_size, int) and size is None:
+            size = items_or_size
+            items = None
+        else:
+            items = items_or_size
 
-    if items and size > len(items):
-        size = max(len(items), size or 0)
-        arr = _empty_ffi.new(_empty_ffi.getctype(ctype, '[]'), size)
-        for i, elem in enumerate(items):
-            arr[i] = elem
-        return arr
-    else:
-        return _empty_ffi.new(_empty_ffi.getctype(ctype, '[]'), items or size)
+        if items and size > len(items):
+            size = max(len(items), size or 0)
+            arr = _global_ffi.new(_global_ffi.getctype(ctype, '[]'), size)
+            for i, elem in enumerate(items):
+                arr[i] = elem
+            return arr
+        else:
+            return _global_ffi.new(_global_ffi.getctype(ctype, '[]'), items or size)
 
-# This is starting to get kind of long... not sure when I should break it out
-# in to a package... I kind of like keeping it a simple module, but, I don't
-# know...
