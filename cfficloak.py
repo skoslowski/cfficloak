@@ -178,7 +178,10 @@ class CFunction(object):
                     inptr = ffi.new(argtype.cname)
                     args = args[:argi] + (inptr,) + args[argi:]
                 elif inout == 'x':
-                    inptr = ffi.new(argtype.cname, args[argi])
+                    if ffi.typeof(args[argi]) == argtype:
+                        inptr = args[argi]
+                    else:
+                        inptr = ffi.new(argtype.cname, args[argi])
                     args = args[:argi] + (inptr,) + args[argi+1:]
                 elif inout == 'a':
                     inptr = self.get_arrayptr(args[argi], ctype=argtype)
