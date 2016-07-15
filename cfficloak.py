@@ -322,6 +322,34 @@ def wrapall(ffi, api):
         # The things I go through for a little bit of introspection.
         # Just hope this doesn't change too much in CFFI's internals...
 
+    try:
+        typedef_names, names_of_structs, names_of_unions = ffi.list_types()
+        for ctypename in names_of_structs:
+            try:
+                cobjs[ctypename] = CStructType(ffi, ctypename)
+            except ffi.error as ex:
+                pass
+        for ctypename in names_of_unions:
+            try:
+                cobjs[ctypename] = CUnionType(ffi, ctypename)
+            except ffi.error as ex:
+                pass
+        for ctypename in typedef_names:
+            try:
+                cobjs[ctypename] = CType(ffi, ctypename)
+            except ffi.error as ex:
+                pass
+
+    except AttributeError:
+        try:
+            decls = ffi._parser._declarations
+        except AttributeError:
+            decls = {}
+        for _, ctype in decls.items():
+            if isinstance(ctype, cffi.model.StructType):
+                cobjs[ctype.get_c_name()] = CStructType(ffi, ctype)
+            elif isinstance(ctype, cffi.model.UnionType):
+                cobjs[ctype.get_c_name()] = CUnionType(ffi, ctype)
 
     return cobjs
 
@@ -658,6 +686,31 @@ class CUnion(CStruct):
 class CUnionType(CStructType):
     def __init__(self, ffi, uniontype):
         super(CUnionType, self).__init__(ffi, uniontype)
+
+
+class CType(object):
+    def __init__(self, ffi, typedef):
+        self.typedef = typedef
+        self.ffi = ffi
+        self.ctype = None
+
+        try:
+            desc = ffi.typeof(typedef + '*').item
+            if desc.kind == 'struct':
+                self.ctype = CStructType(ffi, desc)
+            elif desc.kind == 'union':
+                self.ctype = CUnionType(ffi, desc)
+
+        except Exception as ex:
+            print(ex)
+
+    def __repr__(self):
+        return "type: %s" % self.typedef
+
+    def __call__(self, *args, **kwargs):
+        if self.ctype is None:
+            raise TypeError("'%s' object is not callable", self.typedef)
+        return self.ctype(*args, **kwargs)
 class CObject(object):
     ''' A pythonic representation of a C "object"
     
