@@ -20,6 +20,8 @@
 
 
 import collections
+import six
+import types
 from functools import wraps
 try:
     import cffi
@@ -58,6 +60,14 @@ else:
 
 class NullError(Exception):
     pass
+
+
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    def __getattr__(self, attr):
+        return self.get(attr)
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
 
 class CFunction(object):
@@ -267,10 +277,12 @@ def wrapall(ffi, api):
 
     # TODO: Support passing in a checkerr function to be called on the
     # return value for all wrapped functions.
-    cobjs = {}
+
     global _global_ffi
     if _global_ffi is None:
         _global_ffi = ffi
+
+    cobjs = dotdict()
     for attr in dir(api):
         if not attr.startswith('_'):
             cobj = getattr(api, attr)
