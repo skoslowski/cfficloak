@@ -561,7 +561,7 @@ class CStruct(object):
         return super(CStruct, self).__dir__() + (list(self.__fldnames.keys()) if self.__fldnames else [])
 
     def __getattr__(self, item):
-        if item != '__fldnames' and self.__fldnames and item in self.__fldnames:
+        if item != '_CStruct__fldnames' and self.__fldnames and item in self.__fldnames:
             attr = self.__pfields.get(item, self._cdata.__getattribute__(item))
             if isinstance(attr, self._ffi.CData):
                 pattr = wrap(self._ffi, attr)
@@ -575,7 +575,7 @@ class CStruct(object):
         return super(CStruct, self).__getattribute__(item)
 
     def __setattr__(self, key, value):
-        if key != '__fldnames' and self.__fldnames and key in self.__fldnames:
+        if key != '_CStruct__fldnames' and self.__fldnames and key in self.__fldnames:
             if self.__fldnames[key].cname == 'unsigned char *':
                 if isinstance(value, numpy.ndarray):
                     self.__pfields[key] = value
