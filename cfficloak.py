@@ -442,8 +442,8 @@ class CStructType(object):
     * ``fldnames``: A list of fields this struct has.
 
     Instances of this class are essentially struct/union generators.
-    Calling an instance of ``CStructType`` will produce a newly allocated 
-    struct or union. 
+    Calling an instance of ``CStructType`` will produce a newly allocated
+    struct or union.
 
     Struct fields can be passed in as positional arguments or keyword
     arguments. ``TypeError`` is raised if positional arguments overlap with
@@ -465,16 +465,38 @@ class CStructType(object):
 
         '''
 
-        if isinstance(structtype, str):
-            structtype = ffi._parser.parse_type(structtype)
+        self.fldnames = None
+        self._cdata = None
 
-        self._struct_type = structtype
+        if isinstance(structtype, str):
+            try:
+                self.__struct_type = ffi.typeof(structtype.lstrip('_'))
+            except AttributeError:
+                self.__struct_type = ffi._parser.parse_type(structtype)
+
+        elif isinstance(structtype, ffi.CType):
+            self.__struct_type = structtype
+
+        else:
+            raise NotImplementedError("Don't know how to handle structtype of %s" % type(structtype))
+
+        if self.__struct_type.kind == 'pointer':
+            self.__struct_type = self.__struct_type.item
+
         self.ffi = ffi
 
         # Sometimes structtype.name starts with a '$'...?
-        self.cname = structtype.get_c_name()
+        try:
+            self.cname = self.__struct_type.cname
+        except AttributeError:
+            self.cname = self.__struct_type.get_c_name()
+
         self.ptrname = ffi.getctype(self.cname, '*')
-        self.fldnames = structtype.fldnames
+
+        try:
+            self.fldnames = None if self.__struct_type.fields is None else [detail[0] for detail in self.__struct_type.fields]
+        except AttributeError:
+            self.fldnames = self.__struct_type.fldnames
 
     def __call__(self, *args, **kwargs):
         if self.fldnames is None:
@@ -493,7 +515,7 @@ class CStructType(object):
                     raise TypeError('CStructType call got multiple values for '
                                     'field name {0}'.format(fld))
                 setattr(retval, fld, val)
-            for fld, val in kwargs.iteritems():
+            for fld, val in kwargs.items():
                 setattr(retval, fld, val)
 
             return retval
