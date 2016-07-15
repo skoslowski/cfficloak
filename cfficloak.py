@@ -40,12 +40,16 @@ except ImportError:
 
 __all__ = [
     'CFunction',
+    'CStruct',
+    'CUnion',
     'CStructType',
+    'CUnionType',
     'CObject',
     'NullError',
     'cmethod',
     'cstaticmethod',
     'cproperty',
+    'wrap',
     'wrapall',
     'carray',
     'nparrayptr',
@@ -257,8 +261,34 @@ class CFunction(object):
             return retval
 
 
+def wrap(ffi, cobj):
+    '''
+    Convenience function to wrap CFFI functions structs and unions.
+    '''
+    if (isinstance(cobj, collections.Callable)
+        and ffi.typeof(cobj).kind == 'function'):
+        cobj = CFunction(ffi, cobj)
+
+    elif isinstance(cobj, ffi.CData):
+        kind = ffi.typeof(cobj).kind
+        if kind == 'pointer':
+            kind = ffi.typeof(cobj).item.kind
+
+        if kind == 'struct':
+            cobj = CStruct(ffi, cobj)
+        elif kind == 'union':
+            cobj = CUnion(ffi, cobj)
+
+    elif isinstance(cobj, int):
+        pass
+    else:
+        print("Unknown: %s" % cobj)
+    return cobj
+
+
 def wrapall(ffi, api):
-    ''' Convenience function to wrap CFFI functions structs and unions.
+    '''
+    Convenience function to wrap CFFI functions structs and unions.
 
     Reads functions, structs and unions from an API/Verifier object and wrap
     them with the respective wrapper functions.
@@ -286,19 +316,12 @@ def wrapall(ffi, api):
     for attr in dir(api):
         if not attr.startswith('_'):
             cobj = getattr(api, attr)
-            if (isinstance(cobj, collections.Callable)
-                    and ffi.typeof(cobj).kind == 'function'):
-                cobj = CFunction(ffi, cobj)
+            cobj = wrap(ffi, cobj)
             cobjs[attr] = cobj
 
         # The things I go through for a little bit of introspection.
         # Just hope this doesn't change too much in CFFI's internals...
 
-    decls = ffi._parser._declarations
-    for _, ctype in decls.iteritems():
-        if isinstance(ctype, (cffi.model.StructType,
-                              cffi.model.UnionType)):
-            cobjs[ctype.get_c_name()] = CStructType(ffi, ctype)
 
     return cobjs
 
@@ -600,7 +623,7 @@ class CStructType(object):
             for fld, val in kwargs.items():
                 setattr(retval, fld, val)
 
-            return retval
+            return wrap(self.ffi, retval)
 
     def array(self, shape):
         ''' Constructs a C array of the struct type with the given length.
