@@ -358,7 +358,7 @@ def wrapall(ffi, api):
 
 
 def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
-           checkerr=None):
+           checkerr=None, doc=None):
     ''' Wrap cfunc to simplify handling outargs, etc.
 
     This feature helps to simplify dealing with pointer parameters which
@@ -402,6 +402,8 @@ def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
       containing the actual return value of the C function, followed by the
       final value of each of the ``outargs``, ``inoutargs``, and ``arrays`` in
       the order they appear in the C function's paramater list.
+
+    * ``doc``: Optional string/object to attach to the returned function's docstring
 
     As an example of using ``outargs`` and ``inoutargs``, a C function with
     this signature::
@@ -452,6 +454,8 @@ def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
         return cfunc(*args, outargs=outargs, retargs=retargs,
                      checkerr=_checkerr)
 
+    if doc:
+        wrapper.__doc__ = doc
     return wrapper
 
 
