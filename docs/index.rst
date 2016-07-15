@@ -4,7 +4,7 @@
    contain the root `toctree` directive.
 
 Welcome to cfficloak's documentation!
-====================================
+=====================================
 
 CFFIwrap is a set of convenience functions and wrapper classes designed to
 make writing CFFI modules less tedious. The source tree contains a single
