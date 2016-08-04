@@ -359,6 +359,12 @@ def wrapall(ffi, api):
         for ctypename in typedef_names:
             try:
                 cobjs[ctypename] = CType(ffi, ctypename)
+                try:
+                    enumTypeDesc = ffi.typeof(ctypename).args[0]  # This will only succeed for enums
+                    for val, name in six.iteritems(enumTypeDesc.elements):
+                        cobjs[name] = wrapenum(val, enumTypeDesc)
+                except AttributeError:
+                    pass
             except ffi.error as ex:
                 pass
 
