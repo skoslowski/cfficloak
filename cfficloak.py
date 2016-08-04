@@ -564,7 +564,7 @@ class CStruct(object):
         """
         List the struct fields as well
         """
-        return super(CStruct, self).__dir__() + (list(self.__fldnames.keys()) if self.__fldnames else [])
+        return dir(type(self)) + (list(self.__fldnames.keys()) if self.__fldnames else [])
 
     def __getattr__(self, item):
         if item != '_CStruct__fldnames' and self.__fldnames and item in self.__fldnames:
