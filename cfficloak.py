@@ -63,6 +63,59 @@ else:
     _global_ffi = None
 
 
+_endian = None
+_ntoh, _hton = None, None
+
+def load_endian_translate():
+    if not cffi:
+        raise NotImplementedError("cffi module required")
+    import platform
+    _global_ffi.cdef("""
+    uint32_t htonl(uint32_t hostlong);
+    uint16_t htons(uint16_t hostshort);
+    uint32_t ntohl(uint32_t netlong);
+    uint16_t ntohs(uint16_t netshort);
+    """)
+
+    if platform.system() == 'Windows':
+        _global_ffi.cdef("""
+        uint64_t htonll(uint64_t hostlong);
+        uint64_t ntohll(uint64_t netlong);
+        uint32_t htonf(float hostfloat);
+        float ntohf(uint32_t netfloat);
+        uint64_t htond(double hostdouble);
+        double ntohd(uint64_t netdouble);
+        """)
+        global _endian
+        _endian = _global_ffi.dlopen("Ws2_32")
+
+    else:
+        raise NotImplementedError()
+    global _ntoh
+    global _hton
+
+    _ntoh = dict(
+        int16_t=_endian.ntohs,
+        uint16_t=_endian.ntohs,
+        int32_t=_endian.ntohl,
+        uint32_t=_endian.ntohl,
+        int64_t=lambda x: (_endian.ntohl(x & 0xFFFFFFFF) << 32) | _endian.ntohl(x >> 32),
+        uint64_t=lambda x: (_endian.ntohl(x & 0xFFFFFFFF) << 32) | _endian.ntohl(x >> 32),
+        # float    = _endian.ntohf,
+        # double   = _endian.ntohd,
+    )
+    _hton = dict(
+        int16_t=_endian.htons,
+        uint16_t=_endian.htons,
+        int32_t=_endian.htonl,
+        uint32_t=_endian.htonl,
+        int64_t=lambda x: (_endian.htonl(x & 0xFFFFFFFF) << 32) | _endian.htonl(x >> 32),
+        uint64_t=lambda x: (_endian.htonl(x & 0xFFFFFFFF) << 32) | _endian.htonl(x >> 32),
+        # float    = _endian.htonf,
+        # double   = _endian.htond,
+    )
+
+
 class NullError(Exception):
     pass
 
@@ -541,6 +594,7 @@ class CStruct(object):
 
         self.__fldnames = None
         self.__pfields = {}  # This is used to hold python wrappers that are linked to the underlying fields cdata
+        self._endian_translate = False
 
         assert isinstance(struct, ffi.CData)
 
@@ -570,6 +624,7 @@ class CStruct(object):
         attr = None
         if item != '_CStruct__fldnames' and self.__fldnames and item in self.__fldnames:
             attr = self.__pfields.get(item, self._cdata.__getattribute__(item))
+            attr = self._ntoh(item, attr)
             if not isinstance(attr, self._ffi.CData) and callable(attr):
                attr = attr(self._cdata.__getattribute__(item))
             if isinstance(attr, self._ffi.CData):
@@ -579,10 +634,12 @@ class CStruct(object):
                     attr = pattr
         else:
             attr = super(CStruct, self).__getattribute__(item)
+            attr = self._ntoh(item, attr)
         return attr
 
     def __setattr__(self, key, value):
         if key != '_CStruct__fldnames' and self.__fldnames and key in self.__fldnames:
+            value = self._hton(key, value)
             cname = self.__fldnames[key].cname
             if 'char' in cname and ('[' in cname or '*' in cname):
                 if isinstance(value, (numpy.ndarray, nparray)):
@@ -599,6 +656,25 @@ class CStruct(object):
 
     def set_py_converter(self, key, fn):  # TODO have converters for set as well as get?
         self.__pfields[key] = fn
+
+    def enable_network_endian_translation(self):
+        global _endian
+        if not _endian:
+            load_endian_translate()
+        self._endian_translate = True
+
+    def _hton(self, key, val):
+        if self._endian_translate:
+            fieldtype = self.__fldnames[key].cname
+            val = _hton[fieldtype](val) if fieldtype in _hton else val
+        return val
+
+    def _ntoh(self, key, val):
+        if self._endian_translate:
+            fieldtype = self.__fldnames[key].cname
+            val = _ntoh[fieldtype](val) if fieldtype in _hton else val
+        return val
+
 
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
