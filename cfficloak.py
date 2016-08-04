@@ -567,34 +567,38 @@ class CStruct(object):
         return dir(type(self)) + (list(self.__fldnames.keys()) if self.__fldnames else [])
 
     def __getattr__(self, item):
+        attr = None
         if item != '_CStruct__fldnames' and self.__fldnames and item in self.__fldnames:
             attr = self.__pfields.get(item, self._cdata.__getattribute__(item))
+            if not isinstance(attr, self._ffi.CData) and callable(attr):
+               attr = attr(self._cdata.__getattribute__(item))
             if isinstance(attr, self._ffi.CData):
                 pattr = wrap(self._ffi, attr)
                 if pattr is not attr:
                     self.__pfields[item] = pattr
-                    if isinstance(pattr, types.LambdaType):
-                        attr = pattr(attr)
-                    else:
-                        attr = pattr
-            return attr
-        return super(CStruct, self).__getattribute__(item)
+                    attr = pattr
+        else:
+            attr = super(CStruct, self).__getattribute__(item)
+        return attr
 
     def __setattr__(self, key, value):
         if key != '_CStruct__fldnames' and self.__fldnames and key in self.__fldnames:
-            if self.__fldnames[key].cname == 'unsigned char *':
-                if isinstance(value, numpy.ndarray):
+            cname = self.__fldnames[key].cname
+            if 'char' in cname and ('[' in cname or '*' in cname):
+                if isinstance(value, (numpy.ndarray, nparray)):
                     self.__pfields[key] = value
                     value = nparrayptr(value)
                 elif isinstance(value, (bytes, str)):
-                    self.__pfields[key] = lambda x: self._ffi.string(x)
-                    value = self._ffi.new('char[]', value) # todo untested
+                    self.__pfields[key] = self._ffi.string  # add string output formatter
+                    # Don't change value, setting from bytes or string are fine
             elif hasattr(value, '_cdata') and value._cdata is not None:
                 value = value._cdata
             return setattr(self._cdata, key, value)
         else:
             return super(CStruct, self).__setattr__(key, value)
 
+    def set_py_converter(self, key, fn):  # TODO have converters for set as well as get?
+        self.__pfields[key] = fn
 
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
