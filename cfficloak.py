@@ -675,6 +675,12 @@ class CStruct(object):
             val = _ntoh[fieldtype](val) if fieldtype in _hton else val
         return val
 
+    def __str__(self):
+        return "CStruct %s" % self._cname
+
+    def __len__(self):
+        return self._ffi.sizeof(self.__struct_type)
+
 
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
