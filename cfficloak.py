@@ -904,6 +904,31 @@ class CObject(object):
             self._cdel()
 
 
+class nparray(object):
+    """
+    For use with cffi arrays, return a numpy reference to them that also holds
+    a reference to the c data to ensure it stays alive
+    :param cffi.CData cdata: array object, expected to be uint8_t or equivalent
+    :return: wrapped numpy array object
+    """
+    def __init__(self, _cdata):
+        self.__cdata = _cdata
+        self.__buff = _global_ffi.buffer(_cdata)
+        self.__nparray = numpy.frombuffer(self.__buff, dtype=numpy.uint8)
+
+    def __getattr__(self, item):
+        return getattr(self.__nparray, item)
+
+    def __getitem__(self, item):
+        return self.__nparray[item]
+
+    def __repr__(self):
+        return repr(self.__nparray)
+
+    def __len__(self):
+        return len(self.__nparray)
+
+
 def nparrayptr(nparr):
     ''' Convenience function for getting the CFFI-compatible pointer to a numpy
     array object. '''
