@@ -354,7 +354,7 @@ def wrap(ffi, cobj):
         elif kind == 'union':
             cobj = CUnion(ffi, cobj)
 
-    elif isinstance(cobj, int):
+    elif isinstance(cobj, (int, long)):
         pass
     else:
         print("Unknown: %s" % cobj)
