@@ -997,9 +997,9 @@ class nparray(object):
     :param cffi.CData cdata: array object, expected to be uint8_t or equivalent
     :return: wrapped numpy array object
     """
-    def __init__(self, _cdata):
+    def __init__(self, _cdata, size = -1):
         self.__cdata = _cdata
-        self.__buff = _global_ffi.buffer(_cdata)
+        self.__buff = _global_ffi.buffer(_cdata, size=size)
         self.__nparray = numpy.frombuffer(self.__buff, dtype=numpy.uint8)
 
     def __getattr__(self, item):
