@@ -1014,6 +1014,10 @@ class nparray(object):
     def __len__(self):
         return len(self.__nparray)
 
+    @property
+    def ndarray(self):
+        return self.__nparray
+
 
 def nparrayptr(nparr):
     ''' Convenience function for getting the CFFI-compatible pointer to a numpy
