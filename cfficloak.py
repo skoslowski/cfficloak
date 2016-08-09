@@ -814,6 +814,7 @@ class CType(object):
         self.typedef = typedef
         self.ffi = ffi
         self.ctype = None
+        self._cdata = None
 
         try:
             desc = ffi.typeof(typedef + '*').item
@@ -826,12 +827,23 @@ class CType(object):
             print(ex)
 
     def __repr__(self):
-        return "type: %s" % self.typedef
+        return ("type: %s" % self.typedef) if not self._cdata else \
+            ("%s <%s" % (self.typedef, repr(self._cdata).split(' ')[-1]))
+
 
     def __call__(self, *args, **kwargs):
         if self.ctype is None:
             raise TypeError("'%s' object is not callable", self.typedef)
         return self.ctype(*args, **kwargs)
+
+    def cast(self, cobj):
+        if self.ffi.typeof(cobj) != self.ffi.typeof(self.typedef):
+            cobj = self.ffi.cast(self.typedef, cobj)
+        wrapped = CType(self.ffi, self.typedef)
+        setattr(wrapped, '_cdata', cobj)
+        return wrapped
+
+
 
 
 class Enum(int):
