@@ -27,7 +27,7 @@ with open(os.path.join(os.path.dirname(__file__), 'README.txt')) as readme:
     long_description = readme.read()
     
 setup(name = 'cfficloak',
-    version = '0.1',
+    version = '0.2',
     description = 'A simple but flexible module for creating '
                   'object-oriented, pythonic CFFI wrappers.',
     long_description = long_description,
