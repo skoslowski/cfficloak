@@ -261,6 +261,9 @@ class CFunction(object):
         if self.result.kind == 'enum':
             retval = wrapenum(retval, self.result)
 
+        elif self.result.cname == 'char *':
+            retval = self.ffi.string(retval)
+
         # This is a tad slower in pypy but substantially faster in cpython than
         # checkerr = kwargs.get('checkerr'); if checkerr is not None: ...
         if 'checkerr' in kwargs and kwargs['checkerr'] is not None:
