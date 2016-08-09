@@ -1022,12 +1022,12 @@ class nparray(object):
         return self.__nparray
 
 
-def nparrayptr(nparr):
+def nparrayptr(nparr, offset=0):
     ''' Convenience function for getting the CFFI-compatible pointer to a numpy
     array object. '''
 
     if _global_ffi:
-        return _global_ffi.cast('void *', nparr.__array_interface__['data'][0])
+        return _global_ffi.cast('void *', nparr.__array_interface__['data'][0]+offset)
 
 
 def carray(items_or_size=None, size=None, ctype='int'):
