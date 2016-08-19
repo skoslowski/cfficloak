@@ -621,7 +621,7 @@ class CStruct(object):
         """
         List the struct fields as well
         """
-        return dir(type(self)) + (list(self.__fldnames.keys()) if self.__fldnames else [])
+        return dir(type(self)) + ([key for key in self.__fldnames.keys() if not key.startswith('_')] if self.__fldnames else [])
 
     def __getattr__(self, item):
         attr = None
