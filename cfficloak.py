@@ -18,6 +18,7 @@
 
 ''' A collection of convenience classes and functions for CFFI wrappers. '''
 
+__version__ = '0.2'
 
 import collections
 import six

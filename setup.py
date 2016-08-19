@@ -17,22 +17,18 @@
 
 import os
 from setuptools import setup
-
-#This is a list of files to install, and where
-#(relative to the 'root' dir, where setup.py is)
-#You could be more specific.
-files = ['cfficloak.py']
+from cfficloak import __version__
 
 with open(os.path.join(os.path.dirname(__file__), 'README.txt')) as readme:
     long_description = readme.read()
     
 setup(name = 'cfficloak',
-    version = '0.2',
+    version = __version__,
+    py_modules = ['cfficloak']
     description = 'A simple but flexible module for creating '
                   'object-oriented, pythonic CFFI wrappers.',
     long_description = long_description,
     author = 'Andrew Leech',
     author_email = 'andrew@alelec.net',
     url = 'https://github.com/andrewleech/cfficloak',
-    py_modules = ['cfficloak']
 ) 
