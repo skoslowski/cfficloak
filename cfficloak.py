@@ -684,6 +684,13 @@ class CStruct(object):
     def __len__(self):
         return self._ffi.sizeof(self.__struct_type)
 
+    def __eq__(self, other):
+        return self is other or \
+               self._cdata == other or \
+               (hasattr(other, '_cdata') and self._cdata == getattr(other, '_cdata', object()))
+
+
+
 
 class CStructType(object):
     ''' Provides introspection to CFFI ``StructType``s and ``UnionType``s.
