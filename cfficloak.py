@@ -417,7 +417,8 @@ def wrapall(ffi, api):
             try:
                 cobjs[ctypename] = CType(ffi, ctypename)
                 try:
-                    enumTypeDesc = ffi.typeof(ctypename).args[0]  # This will only succeed for enums
+                    enumTypeDesc = ffi.typeof(ctypename)
+                    enumTypeDesc = enumTypeDesc if enumTypeDesc.kind == 'enum' else enumTypeDesc.args[0]  # This will only succeed for enums
                     for val, name in six.iteritems(enumTypeDesc.elements):
                         cobjs[name] = wrapenum(val, enumTypeDesc)
                 except AttributeError:
@@ -852,9 +853,7 @@ class CType(object):
         return wrapped
 
 
-
-
-class Enum(int):
+class Enum(long if six.PY2 else int):
     """
     This is a base class for wrapping enum ints
     wrapenum() below will subtype it for a particular enum
@@ -878,12 +877,14 @@ def wrapenum(retval, enumTypeDescr):
     Wraps enum int in an auto-generated wrapper class. This is used automatically when
     cmethod() returns an enum type
     :param retval: integer
-    :param enumTypeDescr: the cTypeDescr for the enum
+    :param enumTypeDescr or CType: the cTypeDescr for the enum
     :return: subclass of Enum
     """
     def _newEnumType(enumTypeDescr):
         _enumTypes[enumTypeDescr.cname] = type(enumTypeDescr.cname, (Enum, ), {"_names": enumTypeDescr.elements})
         return _enumTypes[enumTypeDescr.cname]
+    if isinstance(enumTypeDescr, CType):
+        enumTypeDescr = enumTypeDescr.ffi.typeof(enumTypeDescr.typedef)
     enum = _enumTypes.get(enumTypeDescr.cname, _newEnumType(enumTypeDescr))
     return enum(retval)
 
