@@ -440,7 +440,41 @@ def wrapall(ffi, api):
     return cobjs
 
 
-def cmethod(cfunc=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
+def function_skeleton(cmodule=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
+           checkerr=None, doc=None):
+    """
+    This can be used as a decorator on a function stub to declare a python skeleton for a c function
+    eg:
+        @function_skeleton(cmodule=_built_cmodule, checkerr=_checkerr, outargs=[])
+        def c_functtion_name(args1, arg2):
+            \"""
+             c function docstring/description.
+
+             :param type_of_arg1 arg1: arg1 does this
+             :param type_of_arg2 arg2: arg2 does this
+
+             :return something useful
+             \"""
+            pass
+
+    :param cmodule: api/module to get c method from
+    :param outargs: as per cmethod below
+    :param inoutargs: as per cmethod below
+    :param arrays: as per cmethod below
+    :param retargs: as per cmethod below
+    :param checkerr: as per cmethod below
+    :param doc: as per cmethod below
+
+    """
+    @wraps(cmethod)
+    def cmethod_wrap(func):
+        cfunc = getattr(cmodule, func.__name__)
+        return cmethod(cfunc=cfunc, outargs=outargs, inoutargs=inoutargs, arrays=arrays,
+                       retargs=retargs, checkerr=checkerr, doc=doc)
+    return cmethod_wrap
+
+
+def cmethod(cfunc, outargs=(), inoutargs=(), arrays=(), retargs=None,
            checkerr=None, doc=None):
     ''' Wrap cfunc to simplify handling outargs, etc.
 
