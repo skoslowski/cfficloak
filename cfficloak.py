@@ -441,11 +441,11 @@ def wrapall(ffi, api):
 
 
 def function_skeleton(cmodule=None, outargs=(), inoutargs=(), arrays=(), retargs=None,
-           checkerr=None, doc=None):
+           checkerr=None, noret=False, doc=None):
     """
     This can be used as a decorator on a function stub to declare a python skeleton for a c function
     eg:
-        @function_skeleton(cmodule=_built_cmodule, checkerr=_checkerr, outargs=[])
+        @function_skeleton(cmodule=_built_cmodule, checkerr=_checkerr, noret=True, outargs=[])
         def c_functtion_name(args1, arg2):
             \"""
              c function docstring/description.
@@ -463,6 +463,7 @@ def function_skeleton(cmodule=None, outargs=(), inoutargs=(), arrays=(), retargs
     :param arrays: as per cmethod below
     :param retargs: as per cmethod below
     :param checkerr: as per cmethod below
+    :param noret: as per cmethod below
     :param doc: as per cmethod below
 
     """
@@ -470,12 +471,12 @@ def function_skeleton(cmodule=None, outargs=(), inoutargs=(), arrays=(), retargs
     def cmethod_wrap(func):
         cfunc = getattr(cmodule, func.__name__)
         return cmethod(cfunc=cfunc, outargs=outargs, inoutargs=inoutargs, arrays=arrays,
-                       retargs=retargs, checkerr=checkerr, doc=doc)
+                       retargs=retargs, checkerr=checkerr, noret=noret, doc=doc)
     return cmethod_wrap
 
 
 def cmethod(cfunc, outargs=(), inoutargs=(), arrays=(), retargs=None,
-           checkerr=None, doc=None):
+           checkerr=None, noret=False, doc=None):
     ''' Wrap cfunc to simplify handling outargs, etc.
 
     This feature helps to simplify dealing with pointer parameters which
@@ -520,6 +521,8 @@ def cmethod(cfunc, outargs=(), inoutargs=(), arrays=(), retargs=None,
       final value of each of the ``outargs``, ``inoutargs``, and ``arrays`` in
       the order they appear in the C function's paramater list.
 
+    * ``noret``: don't return cfunc's ret. Useful when checkerr is handling this instead
+
     * ``doc``: Optional string/object to attach to the returned function's docstring
 
     As an example of using ``outargs`` and ``inoutargs``, a C function with
@@ -556,7 +559,7 @@ def cmethod(cfunc, outargs=(), inoutargs=(), arrays=(), retargs=None,
     outargs += ((i, 'a') for i in arrays)
 
     outargs.sort()
-    
+
     @wraps(cfunc.cfunc)
     def wrapper(*args):
         if len(args) != numargs:
@@ -568,8 +571,14 @@ def cmethod(cfunc, outargs=(), inoutargs=(), arrays=(), retargs=None,
             _checkerr = args[0]._checkerr
         else:
             _checkerr = checkerr
-        return cfunc(*args, outargs=outargs, retargs=retargs,
-                     checkerr=_checkerr)
+        retvals = cfunc(*args, outargs=outargs, retargs=retargs, checkerr=_checkerr)
+
+        if noret:
+            if isinstance(retvals, tuple):  # strip off the first return value
+                retvals = retvals[1:]
+            else:
+                retvals = None
+        return retvals
 
     if doc:
         wrapper.__doc__ = doc
@@ -925,7 +934,7 @@ def wrapenum(retval, enumTypeDescr):
 
 class CObject(object):
     ''' A pythonic representation of a C "object"
-    
+
     Usually representing a set of C functions that operate over a common peice
     of data. Many C APIs have lots of functions which accept some common struct
     pointer or identifier int as the first argument being manipulated. CObject
@@ -967,7 +976,7 @@ class CObject(object):
         ...     x = cproperty(libexample.point_x, libexample.point_setx)
         ...     y = cproperty(libexample.point_y, libexample.point_sety)
         ...     _cnew = cstaticmethod(libexample.make_point)
-        ... 
+        ...
         >>> p = Point(4, 2)
         >>> p.x
         4
@@ -989,7 +998,7 @@ class CObject(object):
 
         >>> class Point2(Point):
         ...     move = cmethod(libexample.point_move)
-        ... 
+        ...
         >>> p2 = Point2(8, 2)
         >>> p2.move(2, 2)
         0
@@ -1012,7 +1021,7 @@ class CObject(object):
         >>> class MyStruct(CObject):
         ...     x = cproperty(libexample.mystruct_x)
         ...     _cnew = cstaticmethod(libexample.make_mystruct)
-        ... 
+        ...
         >>> ms = MyStruct(4, 2)
         >>> ms.x  # Call to mystruct_x via cproperty
         4
