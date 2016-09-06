@@ -574,8 +574,10 @@ def cmethod(cfunc, outargs=(), inoutargs=(), arrays=(), retargs=None,
         retvals = cfunc(*args, outargs=outargs, retargs=retargs, checkerr=_checkerr)
 
         if noret:
-            if isinstance(retvals, tuple):  # strip off the first return value
+            if isinstance(retvals, tuple) and len(retvals) > 1:  # strip off the first return value
                 retvals = retvals[1:]
+                if len(retvals) == 1:
+                    retvals = retvals[0]
             else:
                 retvals = None
         return retvals
