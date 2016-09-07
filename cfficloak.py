@@ -206,6 +206,8 @@ class CFunction(object):
 
         outargs = kwargs.get('outargs')
         retargs = kwargs.get('retargs')
+        cargs = self.args
+
 
         # This guard is semantically useless, but is substantially faster in
         # cpython than trying to iterate over enumerate([]). (No diff in pypy)
@@ -227,6 +229,10 @@ class CFunction(object):
                     elif 'char' in self.args[argi].cname:
                         arg = self.ffi.new('char[]', arg)
                     args = args[:argi] + (arg,) + args[argi + 1:]
+                elif isinstance(arg, self.ffi.CData) and self.ffi.typeof(arg) != cargs[argi]:
+                    if cargs[argi].kind == 'pointer' and cargs[argi].item == self.ffi.typeof(arg):
+                        arg = self.ffi.addressof(arg)
+                        args = args[:argi] + (arg,) + args[argi+1:]
 
         # If this function has out or in-out pointer args, create the pointers
         # for each, and insert/replace them in the argument list before passing
@@ -241,7 +247,6 @@ class CFunction(object):
             # A few optimizations because looking up local variables is much
             # faster than looking up object attributes.
             retvals_append = retvals.append
-            cargs = self.args
             cfunc = self.cfunc
             ffi = self.ffi
 
