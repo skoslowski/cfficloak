@@ -713,7 +713,10 @@ class CStruct(object):
         else:
             return super(CStruct, self).__setattr__(key, value)
 
-    def set_py_converter(self, key, fn):  # TODO have converters for set as well as get?
+    def set_py_converter(self, key, fn=None):  # TODO have converters for set as well as get?
+        if fn is None and key in self.__pfields:
+            del self.__pfields['key']
+        else:
         self.__pfields[key] = fn
 
     def enable_network_endian_translation(self):
