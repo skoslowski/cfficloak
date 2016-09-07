@@ -642,7 +642,7 @@ class CStruct(object):
 
         '''
 
-        self.__fldnames = None
+        self.__fldnames = {}
         self.__pfields = {}  # This is used to hold python wrappers that are linked to the underlying fields cdata
         self._endian_translate = False
 
@@ -662,13 +662,20 @@ class CStruct(object):
         except AttributeError:
             self._cname = self.__struct_type.get_c_name()
 
-        self.__fldnames = None if self.__struct_type.fields is None else {detail[0]: detail[1].type for detail in self.__struct_type.fields}
+        self.__fldnames = {} if self.__struct_type.fields is None else {detail[0]: detail[1].type for detail in self.__struct_type.fields}
+
+        # default formatters
+        # these can be overridden or removed later with set_py_converter()
+        for key, fieldtype in six.iteritems(self.__fldnames):
+            cname = fieldtype.cname
+            if cname.startswith('char') and ('[' in cname or '*' in cname):
+                self.__pfields[key] = self._ffi.string  # add string output formatter
 
     def __dir__(self):
         """
         List the struct fields as well
         """
-        return dir(type(self)) + ([key for key in self.__fldnames.keys() if not key.startswith('_')] if self.__fldnames else [])
+        return dir(type(self)) + ([key for key in self.__fldnames.keys() if not key.startswith('_')])
 
     def __getattr__(self, item):
         attr = None
