@@ -38,6 +38,8 @@ try:
 except ImportError:
     numpy = None
 
+if six.PY3:
+    long = int
 
 __all__ = [
     'CFunction',

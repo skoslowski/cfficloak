@@ -7,3 +7,5 @@ __pycache__
 build
 temp
 cfficloak.egg-info/
+.idea
+._*
