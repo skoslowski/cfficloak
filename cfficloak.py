@@ -24,6 +24,8 @@ import collections
 import six
 import types
 from functools import wraps
+from collections import namedtuple
+
 try:
     import cffi
 except ImportError:
@@ -717,7 +719,7 @@ class CStruct(object):
         if fn is None and key in self.__pfields:
             del self.__pfields['key']
         else:
-        self.__pfields[key] = fn
+            self.__pfields[key] = fn
 
     def enable_network_endian_translation(self):
         global _endian
@@ -748,7 +750,10 @@ class CStruct(object):
                self._cdata == other or \
                (hasattr(other, '_cdata') and self._cdata == getattr(other, '_cdata', object()))
 
-
+    def get_named_tuple(self):
+        vals = [getattr(self, field) for field in self.__fldnames]
+        recurse = [f.get_named_tuple() if isinstance(f, CStruct) else f for f in vals]
+        return namedtuple(self._cname, self.__fldnames)(*recurse)
 
 
 class CStructType(object):
