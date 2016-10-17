@@ -22,7 +22,6 @@ __version__ = '0.4'
 
 import collections
 import six
-import types
 from functools import wraps
 from collections import namedtuple
 

@@ -16,14 +16,16 @@
 # The full license is also available in the file LICENSE.apache-2.0.txt
 
 import os
+import re
 from setuptools import setup
-from cfficloak import __version__
 
+with open(os.path.join(os.path.dirname(__file__), 'cfficloak.py')) as src:
+    version = re.search(r"__version__ ?= ?'([^']*)'", src.read()).group(1)
 with open(os.path.join(os.path.dirname(__file__), 'README.txt')) as readme:
     long_description = readme.read()
-    
+
 setup(name = 'cfficloak',
-    version = __version__,
+    version = version,
     py_modules = ['cfficloak'],
     description = 'A simple but flexible module for creating '
                   'object-oriented, pythonic CFFI wrappers.',
@@ -31,4 +33,7 @@ setup(name = 'cfficloak',
     author = 'Andrew Leech',
     author_email = 'andrew@alelec.net',
     url = 'https://github.com/andrewleech/cfficloak',
-) 
+    install_requires = [
+        'six',
+    ],
+)
